@@ -1,0 +1,34 @@
+# ---- Secrets ----
+.env
+.env.*
+!.env.example
+
+# ---- Generated data (rebuilt from the API; don't commit) ----
+datasets/
+topics/
+history/
+cache/
+exports/
+quota_history.csv
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+ENV/
+
+# ---- Tooling / OS ----
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
