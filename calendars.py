@@ -263,7 +263,7 @@ def _week_table(df, label):
     return "\n".join(rows)
 
 
-def export_week_calendar(df, niche_name, tiers=None) -> str:
+def export_week_calendar(df, niche_name, tiers=None, out_dir=None) -> str:
     """
     7x24 heatmap. Rendered for the whole niche AND for each creator tier
     that has enough videos, so a new channel can see whether its own
@@ -312,7 +312,8 @@ def export_week_calendar(df, niche_name, tiers=None) -> str:
         "of the weakest levers you have — topic, title and thumbnail matter "
         "far more.</div>")
 
-    out_dir = export_dir_for(EXPORTS_DIR, niche_name, "timing")
+    out_dir = out_dir or export_dir_for(EXPORTS_DIR, niche_name, "timing")
+    os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "calendar_week.html")
     with open(path, "w", encoding="utf-8") as f:
         f.write("<!doctype html><html><head><meta charset='utf-8'>"

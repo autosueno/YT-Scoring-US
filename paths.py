@@ -120,6 +120,25 @@ def history_dir(niche_name: str, date_str: str) -> str:
 # TOPIC PATHS
 # ============================================================
 
+def channel_export_dir(exports_root: str, channel_name: str,
+                       section: str = None) -> str:
+    """
+    exports/_channels/<channel>/<section>/
+
+    Channel teardowns live OUTSIDE the per-niche folders because they are
+    a different unit of analysis. A niche folder answers "what is this
+    market doing"; a channel folder answers "what is this one creator
+    doing". Filing a teardown under whichever niche happened to be open
+    at the time would make it impossible to find later. The underscore
+    prefix keeps _channels sorted away from the niche folders.
+    """
+    d = os.path.join(exports_root, "_channels", safe_name(channel_name))
+    if section:
+        d = os.path.join(d, section)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def topic_dir(topic: str) -> str:
     return os.path.join(TOPICS_DIR, safe_name(topic))
 

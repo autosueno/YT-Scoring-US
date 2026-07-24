@@ -529,10 +529,32 @@ QUOTA_WARN_THRESHOLD = 8_000   # emit a warning once used exceeds this
 # Per-operation quota costs (units charged by YouTube, not by us).
 # https://developers.google.com/youtube/v3/determine_quota_cost
 QUOTA_COSTS = {
-    "search.list":   100,
-    "videos.list":   1,
-    "channels.list": 1,
+    "search.list":        100,
+    "videos.list":        1,
+    "channels.list":      1,
+    "playlistItems.list": 1,
 }
+
+# ============================================================
+# CHANNEL TEARDOWN
+# ============================================================
+# Studying one channel is ~1000x cheaper than building a niche, because a
+# channel's whole catalogue lives in its uploads playlist and
+# playlistItems.list costs 1 unit per 50 videos while search.list costs
+# 100 per call. A 300-video teardown runs about 13 units against the
+# 13,000 a niche build spends.
+#
+# Cap on how many of a channel's videos to pull. Most channels worth
+# studying have well under this; the limit exists so pointing the tool at
+# a 5,000-video news channel doesn't silently spend an afternoon.
+CHANNEL_MAX_VIDEOS = 600
+
+# A channel's own breakouts: videos beating ITS OWN median by this much.
+# Lower than the niche-level threshold (3.0) because a single channel's
+# output is far more homogeneous than a whole niche's — 2x above your own
+# median is a genuine standout when everything shares one creator, one
+# format and one audience.
+CHANNEL_BREAKOUT_RATIO = 2.0
 
 # ============================================================
 # GRADING — MARKET-INTELLIGENCE MODEL

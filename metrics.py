@@ -491,7 +491,12 @@ def calculate_all(df):
     if missing:
         raise ValueError(
             f"calculate_all() requires column(s) {missing}. Got: "
-            f"{sorted(df.columns)[:12]}... — this usually means the video "
+            # str() coerce before sorting: a malformed frame can carry
+            # integer column labels, and sorting a mixed str/int index
+            # raises TypeError from inside the error handler itself,
+            # replacing a clear message with a confusing one.
+            f"{sorted(map(str, df.columns))[:12]}... — this usually means "
+            "the video "
             "download returned an unexpected shape."
         )
 

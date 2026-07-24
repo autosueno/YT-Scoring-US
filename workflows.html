@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workflows — YouTube Market Intelligence Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* Pastels encode COST, not mood. Hue tells you what a run will spend. */
+  --mint:   #C9E4D4;   /* free — no API quota */
+  --butter: #F7E5B7;   /* cheap — ~1k units */
+  --apricot:#F8D3C0;   /* expensive — 13k units */
+  --lilac:  #DCD3EC;   /* limits — what it cannot do */
+  --sky:    #C6DCEB;   /* structure, rules, keycaps */
+
+  --paper:  #F2F4F7;   /* cool grey-blue, deliberately not cream */
+  --card:   #FFFFFF;
+  --ink:    #2E3440;
+  --ink-2:  #5A6474;
+  --ink-3:  #8B94A3;
+  --rule:   #E1E6ED;
+
+  --display:'Space Grotesk',system-ui,sans-serif;
+  --body:'Inter',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:var(--body);font-size:16px;line-height:1.6;
+  padding:clamp(24px,5vw,64px) clamp(16px,5vw,48px);
+}
+.wrap{max-width:1040px;margin:0 auto}
+
+/* ---------- masthead ---------- */
+.masthead{margin-bottom:clamp(36px,6vw,64px)}
+.eyebrow{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 14px;
+}
+h1{
+  font-family:var(--display);font-weight:700;
+  font-size:clamp(30px,6vw,52px);line-height:1.06;
+  letter-spacing:-.025em;margin:0 0 16px;max-width:16ch;
+}
+.standfirst{
+  font-size:clamp(15px,2.2vw,18px);color:var(--ink-2);
+  max-width:56ch;margin:0;
+}
+
+/* ---------- the menu, rendered as the object it is ---------- */
+.menu{
+  background:var(--card);border:1px solid var(--rule);border-radius:14px;
+  padding:clamp(18px,3vw,26px);margin:clamp(28px,5vw,44px) 0;
+}
+.menu-title{
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 16px;
+}
+.menu-grid{
+  display:grid;gap:9px;
+  grid-template-columns:repeat(auto-fill,minmax(232px,1fr));
+}
+.menu-row{display:flex;align-items:center;gap:11px;font-size:14.5px}
+.menu-row span{color:var(--ink-2)}
+.menu-row.dim span{color:var(--ink-3)}
+
+/* keycap — the signature element. It is what you physically press. */
+.key{
+  flex:none;display:grid;place-items:center;
+  width:29px;height:29px;border-radius:8px;
+  background:var(--sky);border:1px solid rgba(46,52,64,.13);
+  box-shadow:0 1.5px 0 rgba(46,52,64,.16);
+  font-family:var(--mono);font-weight:600;font-size:14px;color:var(--ink);
+}
+.key.free{background:var(--mint)}
+.key.cheap{background:var(--butter)}
+.key.dear{background:var(--apricot)}
+.key.ghost{background:var(--card);color:var(--ink-3)}
+
+/* ---------- cost legend ---------- */
+.legend{
+  display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;
+  margin:0 0 clamp(28px,5vw,40px);font-size:13.5px;color:var(--ink-2);
+}
+.legend b{
+  display:inline-block;width:15px;height:15px;border-radius:5px;
+  vertical-align:-2px;margin-right:7px;border:1px solid rgba(46,52,64,.12);
+}
+
+/* ---------- workflow cards ---------- */
+.jobs{display:grid;gap:16px}
+@media(min-width:820px){.jobs{grid-template-columns:1fr 1fr}}
+.job{
+  background:var(--card);border:1px solid var(--rule);border-radius:14px;
+  padding:clamp(20px,3vw,26px);position:relative;overflow:hidden;
+  transition:transform .18s ease,box-shadow .18s ease;
+}
+.job::before{
+  content:"";position:absolute;inset:0 auto 0 0;width:5px;
+  background:var(--tint,var(--sky));
+}
+.job:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(46,52,64,.07)}
+.job:focus-within{outline:2px solid var(--ink);outline-offset:3px}
+.job.wide{grid-column:1/-1}
+
+.job h2{
+  font-family:var(--display);font-weight:700;font-size:20px;
+  letter-spacing:-.015em;margin:0 0 4px;
+}
+.aim{color:var(--ink-2);font-size:14.5px;margin:0 0 18px;max-width:52ch}
+
+/* chain of keycaps = the command you actually type */
+.chain{
+  display:flex;flex-wrap:wrap;align-items:center;gap:9px;
+  padding:14px;border-radius:10px;background:var(--paper);
+  margin:0 0 16px;
+}
+.chain .arrow{color:var(--ink-3);font-size:13px;flex:none}
+.chain .step{
+  font-family:var(--mono);font-size:12.5px;color:var(--ink-2);
+  display:flex;align-items:center;gap:7px;
+}
+.chain .file{
+  font-family:var(--mono);font-size:12px;color:var(--ink-2);
+  background:var(--card);border:1px solid var(--rule);
+  padding:4px 9px;border-radius:7px;
+}
+
+.note{font-size:14px;color:var(--ink-2);margin:0 0 16px;max-width:54ch}
+.note strong{color:var(--ink);font-weight:600}
+.cost{
+  font-family:var(--mono);font-size:12px;color:var(--ink-3);
+  border-top:1px solid var(--rule);padding-top:13px;margin:0;
+}
+
+/* ---------- limits ---------- */
+.limits{
+  background:var(--lilac);border-radius:14px;
+  padding:clamp(22px,3.5vw,30px);margin-top:clamp(28px,5vw,44px);
+}
+.limits h2{
+  font-family:var(--display);font-weight:700;font-size:20px;
+  margin:0 0 6px;letter-spacing:-.015em;
+}
+.limits p.lead{margin:0 0 18px;color:#4B4460;font-size:14.5px;max-width:58ch}
+.limits dl{margin:0;display:grid;gap:15px}
+.limits dt{font-weight:600;font-size:14.5px;color:#332E45}
+.limits dd{margin:3px 0 0;font-size:14px;color:#54506B;max-width:62ch}
+
+footer{
+  margin-top:clamp(30px,5vw,48px);padding-top:20px;
+  border-top:1px solid var(--rule);
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
+  display:flex;flex-wrap:wrap;gap:6px 18px;
+}
+@media(prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">YouTube Market Intelligence Engine</p>
+  <h1>Seven jobs, and how to run each one.</h1>
+  <p class="standfirst">The menu has eight options. On their own they don't
+  do much — the value is in chaining them. Each workflow below is a chain,
+  priced so you can see what it costs before you start.</p>
+</header>
+
+<section class="menu" aria-label="The menu">
+  <p class="menu-title">py main.py</p>
+  <div class="menu-grid">
+    <div class="menu-row"><span class="key dear">1</span><span>Build / refresh a niche</span></div>
+    <div class="menu-row"><span class="key cheap">2</span><span>Grade a topic</span></div>
+    <div class="menu-row"><span class="key free">3</span><span>Discover opportunities</span></div>
+    <div class="menu-row"><span class="key free">4</span><span>Show niche summary</span></div>
+    <div class="menu-row"><span class="key free">5</span><span>Grade existing niche</span></div>
+    <div class="menu-row"><span class="key free">6</span><span>Thumbnail contact sheet</span></div>
+    <div class="menu-row"><span class="key free">7</span><span>Search intent &amp; Reddit</span></div>
+    <div class="menu-row dim"><span class="key ghost">8</span><span>Quit</span></div>
+  </div>
+</section>
+
+<p class="legend">
+  <span><b style="background:var(--apricot)"></b>13,000 units</span>
+  <span><b style="background:var(--butter)"></b>~1,000 units</span>
+  <span><b style="background:var(--mint)"></b>No quota — reads what you already have</span>
+</p>
+
+<div class="jobs">
+
+  <article class="job" style="--tint:var(--apricot)">
+    <h2>Find what to make</h2>
+    <p class="aim">You have a niche. You need ideas that are genuinely
+    under-served, not just ideas.</p>
+    <div class="chain">
+      <span class="step"><span class="key dear">1</span>build</span>
+      <span class="arrow">→</span>
+      <span class="step"><span class="key free">3</span>discover</span>
+      <span class="arrow">→</span>
+      <span class="file">angles_prompt.md</span>
+      <span class="arrow">→</span>
+      <span class="step">paste into an AI</span>
+      <span class="arrow">→</span>
+      <span class="step"><span class="key cheap">2</span>grade the best 2–3</span>
+    </div>
+    <p class="note">The main loop — everything else supports it. Don't skip
+    the grading step. <strong>An angle that reads beautifully can still sit
+    in a saturated corner</strong>, and 1,000 units is cheap insurance
+    against a week of wasted production.</p>
+    <p class="cost">13,000 units to build · ~1,000 per topic graded</p>
+  </article>
+
+  <article class="job" style="--tint:var(--butter)">
+    <h2>Validate one idea</h2>
+    <p class="aim">You already know what you want to make. Is the market
+    actually there?</p>
+    <div class="chain">
+      <span class="step"><span class="key cheap">2</span>grade topic against niche</span>
+    </div>
+    <p class="note">Read the <strong>demand-minus-supply imbalance</strong>,
+    not the headline score. Demand well above supply is the signal. Momentum
+    tells you whether you're early or late.</p>
+    <p class="cost">~1,000 units · needs a niche built first</p>
+  </article>
+
+  <article class="job" style="--tint:var(--mint)">
+    <h2>Learn how to package it</h2>
+    <p class="aim">Topic decided. Now: how do the winners title and
+    thumbnail it?</p>
+    <div class="chain">
+      <span class="step"><span class="key free">3</span>discover</span>
+      <span class="arrow">→</span>
+      <span class="file">packaging/seo.md</span>
+      <span class="arrow">→</span>
+      <span class="step"><span class="key free">6</span>contact sheet</span>
+    </div>
+    <p class="note">Twenty thumbnails to study, plus title patterns and tag
+    lift. <strong>Lift is correlational</strong> — it shows what winners did,
+    not what caused the winning.</p>
+    <p class="cost">Free after the build</p>
+  </article>
+
+  <article class="job" style="--tint:var(--mint)">
+    <h2>Learn how to structure it</h2>
+    <p class="aim">Why do the winning videos in this niche actually work?</p>
+    <div class="chain">
+      <span class="step"><span class="key free">3</span>discover</span>
+      <span class="arrow">→</span>
+      <span class="file">prompts/transcript_study.md</span>
+      <span class="arrow">→</span>
+      <span class="step">copy 8 transcripts</span>
+      <span class="arrow">→</span>
+      <span class="step">paste with the included prompt</span>
+    </div>
+    <p class="note">Hook type, entry point, pacing, and what none of them do.
+    <strong>Almost nobody does this</strong>, which is part of why it's worth
+    the twenty minutes of copying.</p>
+    <p class="cost">Free · ~20 min of manual work</p>
+  </article>
+
+  <article class="job" style="--tint:var(--mint)">
+    <h2>Find what's coming</h2>
+    <p class="aim">Cover something before the wave reaches YouTube.</p>
+    <div class="chain">
+      <span class="step"><span class="key free">7</span>→ b</span>
+      <span class="arrow">→</span>
+      <span class="file">signals/reddit_signals.md</span>
+    </div>
+    <p class="note">Terms climbing fast on Reddit but thin on YouTube.
+    <strong>Treat these as leads to check, not forecasts</strong> — the idea
+    that social chatter reliably precedes YouTube is widely repeated and, as
+    far as I know, never actually demonstrated.</p>
+    <p class="cost">Free · no YouTube quota</p>
+  </article>
+
+  <article class="job" style="--tint:var(--mint)">
+    <h2>Research keywords</h2>
+    <p class="aim">What do people actually type into the search box?</p>
+    <div class="chain">
+      <span class="step"><span class="key free">7</span>→ a → preset 2</span>
+      <span class="arrow">then</span>
+      <span class="step">preset 5</span>
+    </div>
+    <p class="note">Preset 2 covers the niche broadly, about a minute.
+    Preset 5 is sharper and takes about two: <strong>what people search
+    around the topics already winning</strong>. Separate files, so run both.</p>
+    <p class="cost">Free · 1–3 min depending on preset</p>
+  </article>
+
+  <article class="job wide" style="--tint:var(--mint)">
+    <h2>Find a repeatable format</h2>
+    <p class="aim">A series, not a one-off. At your channel size this matters
+    more than any single video decision here.</p>
+    <div class="chain">
+      <span class="step"><span class="key free">3</span>discover</span>
+      <span class="arrow">→</span>
+      <span class="file">breakouts/breakout_clusters.csv</span>
+      <span class="arrow">→</span>
+      <span class="step">sort by <span class="file">unique_channels</span></span>
+    </div>
+    <p class="note">A cluster where seven or more separate channels succeeded
+    is a <strong>format</strong>, not a fluke. That's the difference between
+    one good video and a content engine — your second video benefits from the
+    first in a way one-off topics never allow.</p>
+    <p class="cost">Free after the build</p>
+  </article>
+
+</div>
+
+<section class="limits">
+  <h2>What it can't do</h2>
+  <p class="lead">Worth knowing before you go looking for these.</p>
+  <dl>
+    <dt>Compare two niches head to head</dt>
+    <dd>Option 5 grades a niche against its own baseline, which forces demand
+    to about 64 and supply to exactly 50. That's arithmetic, not information.
+    Cross-niche grading exists in the code but isn't wired into the menu —
+    for now, run option 3 on each and compare cluster strength by hand.</dd>
+
+    <dt>Tell you whether <em>your</em> video will work</dt>
+    <dd>It never sees your channel. Every number here describes the market,
+    not your odds in it.</dd>
+
+    <dt>Judge whether a video is on-topic</dt>
+    <dd>There's no topical relevance filter, deliberately. Occasional
+    off-topic leaks are the price of not silently dropping things that only
+    look irrelevant.</dd>
+
+    <dt>Measure search demand</dt>
+    <dd>Scores are built from how existing videos performed. A topic nobody
+    has covered looks identical to a topic nobody wants. Option 7 gets close
+    from the outside, but it doesn't feed the scoring yet.</dd>
+  </dl>
+</section>
+
+<footer>
+  <span>20 modules</span>
+  <span>Deterministic — same data in, same answer out</span>
+  <span>Math discovers, AI explains</span>
+</footer>
+
+</div>
+</body>
+</html>

@@ -235,7 +235,7 @@ def write_angles_prompt(scored_df, clusters, niche_name,
 # ============================================================
 
 def write_transcript_study(scored_df, niche_name,
-                           n=TRANSCRIPT_SHORTLIST) -> str:
+                           n=TRANSCRIPT_SHORTLIST, out_dir=None) -> str:
     """
     Write transcript_study.md — a shortlist of videos worth transcribing
     plus the prompt for analysing them together.
@@ -264,7 +264,8 @@ def write_transcript_study(scored_df, niche_name,
     3M-subscriber channel might just have had 3M subscribers.
     """
     df = _drop_shorts(scored_df)
-    out_dir = export_dir_for(EXPORTS_DIR, niche_name, "prompts")
+    out_dir = out_dir or export_dir_for(EXPORTS_DIR, niche_name, "prompts")
+    os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, "transcript_study.md")
 
     rank_col = "outlier_ratio" if "outlier_ratio" in df.columns else "breakout_score"
