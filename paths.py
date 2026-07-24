@@ -50,6 +50,39 @@ def safe_name(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", name.strip().lower())
 
 
+def export_dir_for(exports_root: str, niche_name: str,
+                   section: str = None) -> str:
+    """
+    exports/<niche>/<section>/ — one folder per niche, subdivided by
+    what the files are FOR.
+
+    Bracketing by niche came first, because all four writers used to
+    dump flat into exports/ and a few builds turned it into an unsorted
+    pile spanning every niche. Sections came second, for the same
+    reason one level down: a single niche now produces ~16 files
+    (breakout x3, seo x2, two calendars, dashboard, three prompt files,
+    intent gaps x2, reddit signals x2, plus thumbnail folders), and a
+    flat folder of 16 mixed-purpose files is only marginally better
+    than a flat folder of 60.
+
+    Sections in use:
+        market     the assessment — dashboard, grade reports
+        breakouts  ranked video lists
+        packaging  SEO/title/tag analysis, thumbnails, contact sheets
+        timing     publishing calendars
+        prompts    files meant to be pasted into an AI
+        signals    external demand — autocomplete, Reddit
+
+    section=None returns the niche root, which is still the right place
+    for anything that spans sections.
+    """
+    d = os.path.join(exports_root, safe_name(niche_name))
+    if section:
+        d = os.path.join(d, section)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 # ============================================================
 # NICHE PATHS
 # ============================================================

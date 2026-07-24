@@ -60,6 +60,70 @@ SEARCH_WINDOW_DAYS = 30          # window size per search slice
 # filter — YouTube may still return other languages. None disables it.
 RELEVANCE_LANGUAGE = "en"
 
+# How many second-level suggestions each seed recurses into when depth=2.
+#
+# Autocomplete is free and unmetered — the only cost is wall-clock time
+# at the polite inter-request delay. An earlier version imposed a total
+# lookup budget and silently reduced recursion depth to stay inside it,
+# which meant asking for a deep harvest and quietly getting a shallow
+# one. Time spent is the user's decision, so the menu now shows the
+# estimate and asks before starting instead of throttling behind their
+# back.
+#
+# For reference, with full a-z expansion (41 lookups per seed):
+#     5 seeds, no recursion   ->    205 lookups   ~1 min
+#     5 seeds, recurse 8      ->  1,845 lookups  ~11 min
+#    11 seeds, recurse 8      ->  4,059 lookups  ~24 min
+SIGNALS_RECURSE_TOP = 8
+
+# ============================================================
+# COLLECTION QUALITY FILTERS
+# ============================================================
+# Diagnosed from a real "finance" build whose top-20 breakouts included
+# Bengali, Hindi, Korean and Indonesian videos, a NATO press release, an
+# LeBron James clip, a manifestation/law-of-attraction Short and a B2B
+# SaaS ad. Roughly 4 of 20 were usable. Three independent causes:
+
+# 1. SEARCH ORDER. Collection previously ordered by "date" INSIDE each
+#    30-day window. But the windows already guarantee temporal spread, so
+#    date-ordering within them adds nothing and discards relevance
+#    entirely — it returns the newest loosely-matching videos rather than
+#    the best-matching ones. "relevance" costs the same quota and is
+#    strictly better here.
+SEARCH_ORDER = "relevance"
+
+# 2. SHORTS. YouTube search returns Shorts alongside long-form and the API
+#    has no "exclude shorts" flag. Shorts are a different product: their
+#    views come from the Shorts feed (algorithmic push), not from search
+#    intent, so their views/hour is structurally far higher. Left in, they
+#    dominate breakout rankings while telling a long-form creator nothing
+#    actionable.
+#    videoDuration is applied at the API level ("any"/"short"/"medium"/
+#    "long"; medium = 4-20min, long = >20min). "any" keeps breadth and
+#    lets the post-filter below do precise work.
+COLLECT_VIDEO_DURATION = "any"
+#    Post-filter: drop anything shorter than this. 180s is YouTube's own
+#    Shorts ceiling. Set to None to keep everything.
+EXCLUDE_SHORTS_UNDER_SECONDS = 180
+
+# 3. LANGUAGE. relevanceLanguage is a RANKING HINT, not a filter, and
+#    regionCode only biases viewability — neither excludes foreign-language
+#    content, which is why Bengali and Korean videos ranked in a US
+#    English build. Declared language fields are frequently empty, so the
+#    fallback is script detection on the title: a title that is mostly
+#    non-Latin characters is not English content.
+REQUIRE_ENGLISH = True
+#    Minimum share of alphabetic characters that must be Latin. Emoji,
+#    digits and punctuation are ignored entirely before measuring.
+#    Set at 0.80 rather than a bare majority because BILINGUAL titles are
+#    the common case in the content this is meant to exclude: a real
+#    Bengali video titled "৭৪০ কোটির মালিক! | 740 crore bank balance | VOB"
+#    is 76% Latin by character count and would survive a 0.60 cut, even
+#    though it is plainly Bengali content. Substantial non-Latin script
+#    present at all is the signal; a stray foreign word in an otherwise
+#    English title still scores ~0.95 and passes.
+MIN_LATIN_SCRIPT_RATIO = 0.80
+
 # Target markets (YouTube regionCode, ISO 3166-1 alpha-2). Advertiser rates
 # vary sharply by VIEWER country — US/CA/GB/AU are consistently among the
 # highest-paying anglophone markets — so biasing collection toward them
@@ -108,7 +172,21 @@ REGION_STRATEGY = "first"
 # rotates to the next and retries the same request; when ALL keys are
 # exhausted, collection stops gracefully and the pipeline continues with
 # whatever has been gathered so far (partial dataset, never a crash).
-MAX_API_KEYS = 3
+MAX_API_KEYS = 7
+
+# Assign one dedicated API key per seed (seed 1 -> key 1, seed 2 -> key 2...).
+# Guarantees a greedy first seed cannot consume the budget of later seeds.
+# If a seed exhausts its own key it falls back to any still-unused key, so
+# isolation costs no capacity. Set False for a single shared rotating pool.
+KEY_PER_SEED = True
+
+# Keys held back from niche builds and used first for cheap operations
+# (topic grading, refreshes). A SOFT reserve: builds may still use them as
+# a last resort rather than failing. 0 disables.
+RESERVED_KEYS_FOR_TOPICS = 2
+
+# Daily quota per key (Google default for the YouTube Data API).
+DAILY_QUOTA_PER_KEY = 10_000
 
 # ============================================================
 # MULTI-SEED NICHE COLLECTION
@@ -147,13 +225,79 @@ STATISTICS_PERCENTILE_POINTS = [1, 5, 10, 20, 25, 30, 40, 50,
 # stronger evidence of a real opportunity than one exceptional performer
 # scoring 98. Clustering is deterministic (phrase-based), not AI.
 EXPORTS_DIR = os.path.join(BASE_DIR, "exports")
-BREAKOUT_VELOCITY_WEIGHT = 0.30   # 0 = pure outlier percentile
+# --- Breakout score weights -------------------------------------------
+# breakout_score is a weighted blend of PERCENTILES (each component is
+# ranked against the niche baseline first, so all land on 0-100 and are
+# comparable). Weights are renormalised over whatever components the
+# dataset actually has, so setting one to 0 removes it cleanly.
+#
+# WHY ABSOLUTE DEMAND LEADS. An earlier split put outlier_ratio at 0.45,
+# which ranked by "did this beat its own channel". That is the right
+# question for "is this strategy transferable", but the wrong one for
+# "is there real demand here": a channel averaging 15 views that hits
+# 150 scores a 10x and outranks a video pulling 400,000. Genuine market
+# demand is an absolute quantity, so views-per-hour now leads.
+#
+# The channel-relative view has NOT been discarded — it moved to where
+# it belongs. The tiered breakout tables (brand-new / small / by-reach)
+# rank by outlier_ratio within each size band, which answers "what can a
+# channel my size actually do" without letting tiny-denominator noise
+# contaminate the headline ranking.
+BREAKOUT_DEMAND_WEIGHT = 0.65     # views_per_hour percentile — demand RATE
+BREAKOUT_OUTLIER_WEIGHT = 0.25    # outlier_ratio percentile — vs own channel
 
-# Demand context: how much the video's absolute demand percentile (views
-# per hour vs the niche) contributes to breakout score, alongside the
-# channel-relative signals. Without this, a video that starts a whole new
-# trend on a big channel is invisible (its channel-relative outlier is ~1).
-BREAKOUT_DEMAND_WEIGHT = 0.25
+# WHY THERE IS NO RAW view_count COMPONENT. One was briefly added, on the
+# reasoning that views_per_hour over-rewards brand-new videos (small
+# denominator) and an absolute reach term would balance the age bias.
+# Measured against real data, view_count correlates 0.839 with
+# channel_subs — it is overwhelmingly a proxy for how large the channel
+# already is, not for how much demand the topic has. Adding it at 0.25
+# pulled three 418k-773k-subscriber channels into a top-8 that otherwise
+# had a median of ~29k subs. It was measuring exactly the thing the
+# ranking is supposed to see past, so it was removed rather than
+# down-weighted.
+#
+# The recency tilt in views_per_hour is left in deliberately. A video's
+# views divided by its age favours what is moving NOW, which is the
+# question this score exists to answer. The cost is that a strong
+# evergreen video from ten months ago scores lower than its steady
+# performance deserves — worth knowing when reading the list.
+
+# breakout_velocity (= outlier_ratio / days) is a TIMING signal, not a
+# demand one: it separates a video that exploded from one that
+# accumulated the same overperformance slowly.
+#
+# It was briefly dropped entirely on the grounds that it correlates 0.704
+# with outlier_ratio. That was measured wrong. Regressing velocity on the
+# two components actually kept gives R-squared 0.868 — so 13% of it IS
+# unique information, and "correlated" is not the same as "redundant".
+#
+# But the practical effect is small: re-adding it at 0.15 changed the
+# top 20 by exactly one video. So it earns a real but minority weight.
+# Note that views_per_hour ALREADY encodes age (views divided by hours),
+# which is why velocity adds so little on top — the exploded-vs-
+# accumulated distinction is mostly visible there already.
+BREAKOUT_VELOCITY_WEIGHT = 0.10
+
+# --- Evidence flagging (NOT a hard floor on the score) ----------------
+# Videos below this get an explicit low_evidence marker in exports.
+#
+# A hard floor was considered and rejected FOR THE SCORE. The score's job
+# includes catching content while it is still emerging, and a fast-moving
+# 3,000-view video a few hours old is exactly the early signal that is
+# worth seeing. Filtering it out to avoid noise would also remove the
+# thing the demand-rate weighting exists to find.
+#
+# A floor IS applied where it belongs: the tiered breakout tables (see
+# BREAKOUT_MIN_VIEWS_LADDER), which exist for studying case studies. A
+# 200-view video teaches nothing there no matter how clean its ratio.
+# Here the answer is to LABEL thin evidence rather than hide it.
+BREAKOUT_LOW_EVIDENCE_VIEWS = 5_000
+
+# Demand RATE vs absolute REACH is a deliberate pairing: views_per_hour
+# alone over-rewards brand-new videos with few total views (small
+# denominator), while view_count alone over-rewards old ones that had
+# longer to accumulate. Carrying both balances the age bias.
 
 # Clustering
 CLUSTER_MIN_VIDEOS = 3        # a phrase needs this many videos to be a cluster
@@ -176,6 +320,32 @@ CLUSTER_WEAK_WORDS = {
     "buy", "sell", "watch", "know", "need", "make", "get", "want", "use",
     "see", "look", "going", "explained", "revealed",
     "should", "could", "would", "must", "might", "about", "truth",
+    # Packaging phrases observed polluting a real 40-cluster finance run:
+    # "here exactly", "already here", "changes everything", "everything
+    # changes", "always happens", "collapsed yet", "don understand",
+    # "years here", "full guide" — 9 of 40 clusters were phrases like
+    # these rather than topics. They recur across unrelated subjects, so
+    # they group videos that have nothing in common but their title
+    # construction.
+    #
+    # This IS a hand-maintained list and it will lag behind new
+    # packaging fashions. A general mechanism was attempted — measuring
+    # whether a cluster's videos share vocabulary beyond the phrase that
+    # grouped them — and it was discarded because it did not
+    # discriminate: real topics scored 0.20 and packaging phrases 0.25,
+    # since a genuine topic's titles are just as varied ("Index Funds vs
+    # ETFs", "Why Index Funds Beat Stock Picking"). The topic IS the
+    # phrase. Until something better exists, curate this list.
+    "exactly", "already", "everything", "changes", "change", "happens",
+    "happen", "collapsed", "collapse", "understand", "yet", "here",
+    "there", "guide", "full", "always", "never", "everyone", "nobody",
+    "anyone", "something", "nothing", "anything", "actually", "really",
+    "literally", "finally", "suddenly", "instantly",
+    # Plurals and contraction fragments the tokeniser produces. "don"
+    # is what "don't" becomes; "years here" and "every month" leaked
+    # through because only the singular forms were listed.
+    "don", "doesn", "isn", "won", "can", "years", "months", "weeks",
+    "days", "hours", "every", "each", "any", "all", "both",
     # vague nouns / qualifiers
     "news", "video", "best", "top", "big", "huge", "thing", "things",
     "people", "guy", "man", "woman", "way", "ways", "everyone", "nobody",
@@ -198,6 +368,121 @@ CLUSTER_EVIDENCE_REFERENCE = 10   # channel count that earns a full evidence sco
 # False (no silent behavior change); flip to True for long-form hunting.
 DISCOVERY_EXCLUDE_SHORTS = False
 
+# ============================================================
+# PUBLISH TIMING
+# ============================================================
+# published_at is UTC; publishing advice in UTC is useless, so timing is
+# converted to the AUDIENCE timezone. Change this if you target elsewhere
+# (e.g. "Europe/London", "Australia/Sydney", "Asia/Kolkata").
+AUDIENCE_TIMEZONE = "America/New_York"
+
+# Hours are bucketed into blocks. 24 separate hours x 7 weekdays = 168
+# cells, far too thin to read from a 3,000-video niche; 3-hour blocks give
+# 56 cells (~54 videos each), which is defensible.
+TIMING_HOUR_BLOCK = 3
+
+# A bucket below this many videos is reported but flagged as unreliable
+# rather than silently dropped.
+TIMING_MIN_SAMPLES = 20
+
+# Creator-size tiers for segmented timing. A brand-new channel behaves
+# nothing like an established one: it has no subscriber base to notify, so
+# the launch-hour velocity spike that drives timing advice for big channels
+# simply doesn't exist for it.
+#
+# SAMPLE-SIZE REALITY (measured on a real 1,957-video finance build):
+#   <100 subs  188 videos (9.6%)  -> ~23 per 3-hour block: usable
+#                                  -> ~1 per weekday x hour cell: NOT usable
+# So the tier split is reported at BLOCK level only, and the weekly
+# hour-by-hour heatmap falls back to a wider population.
+#
+# SURVIVORSHIP WARNING: a sub-100-subscriber channel whose video appears in
+# YouTube search results at all is already an extreme outlier. That segment
+# is not "typical new channels" — it is "new channels that broke through".
+# --- Statistical treatment of thin buckets -------------------------------
+# A hard n>=TIMING_MIN_SAMPLES cutoff is crude: a 21-video bucket at index
+# 240 still outranks a 700-video bucket at 180, which is the same error in
+# a suit. Instead every bucket is SHRUNK toward the niche median (100):
+#
+#     shrunk = (n * observed + k * 100) / (n + k)
+#
+# k is the number of "virtual average videos" added to each bucket. With
+# k=25, a 4-video bucket keeps ~14% of its deviation while a 700-video
+# bucket keeps ~97%. Small samples must earn their extremity.
+TIMING_SHRINKAGE_K = 25
+
+# Bootstrap resamples for the confidence interval on each bucket median.
+# 400 is enough for a stable 90% interval and stays fast across ~170 cells.
+TIMING_BOOTSTRAP_N = 400
+TIMING_CI_PERCENTILES = (5, 95)
+
+# Optional recency weighting. Publishing rhythms drift; within a 365-day
+# window the drift is modest, so this is OFF by default. When enabled,
+# a video's weight is 0.5 ** (age_days / TIMING_HALFLIFE_DAYS).
+TIMING_RECENCY_WEIGHTING = False
+TIMING_HALFLIFE_DAYS = 120
+
+CREATOR_SIZE_TIERS = [
+    (0, 100, "new_creators"),          # <100 subs — closest to a fresh channel
+    (100, 10_000, "small_creators"),   # 100-10k
+    (10_000, None, "large_creators"),  # 10k+
+]
+
+# Tiers for the breakout tables in topic + discovery reports. Different
+# question from CREATOR_SIZE_TIERS above (which is mechanistic — "does the
+# channel have a notification wave to catch?"). Here the question is
+# competitive: "which channels are peers of mine, which are one rung above,
+# and which win by absolute reach?"
+#
+# The 2k cutoff for "brand-new" was chosen deliberately: below that a
+# channel almost always has no algorithmic history and no subscriber wave,
+# so its videos win on topic/title/thumbnail alone — exactly what a
+# creator at that size can control. 2k–100k covers channels that have some
+# traction but no institutional muscle. 100k+ is a very different game.
+#
+# A tier is only rendered if it has at least this many videos, to avoid
+# showing a "top 5" list that's really a top-2 list with three blanks.
+BREAKOUT_TIER_MIN_VIDEOS = 8
+
+# Minimum absolute views before a video can appear in a small-channel
+# breakout table.
+#
+# WHY THIS IS NEEDED: those tables rank by outlier_ratio (views divided
+# by the channel's own average), which is the right metric for "did this
+# punch above its weight" but becomes unstable when the denominator is
+# tiny. Observed on a real run: a channel averaging ~15 views had one
+# video reach 201 views, scoring 13.8x — and it ranked ABOVE a 445,654-
+# view video in the same table. Five of fifteen surfaced rows had under
+# 10,000 views; three had under 2,000.
+#
+# Two independent reasons to floor it. Statistically, a ratio with a
+# 15-view denominator is noise — one share in a group chat produces it.
+# Practically, a 201-view video is not a case study regardless of how
+# clean its ratio is; there is nothing to learn from it.
+#
+# Applied as a LADDER rather than a hard cut, because a thin niche may
+# have no small-channel videos above the top rung. The renderer walks
+# down until enough videos qualify and reports which floor it used, so
+# a relaxed threshold is visible rather than silent.
+BREAKOUT_MIN_VIEWS_LADDER = [10_000, 5_000, 2_000, 0]
+BREAKOUT_TIERS = [
+    (0,       2_000,   "brand_new",       "Brand-New Breakouts (<2k subs)"),
+    (2_000,   100_000, "small",           "Small-Channel Breakouts (2k–100k subs)"),
+    (100_000, None,    "top_by_reach",    "Top Videos (by views/hour)"),
+]
+
+
+# ============================================================
+# SEO / PACKAGING REPORT
+# ============================================================
+# Terms are ranked by LIFT (how much more often they appear among breakout
+# videos than among videos generally), never by raw frequency: the most
+# common tag in a finance niche is "finance", which is vocabulary rather
+# than advantage. Minimum support stops a term riding on two lucky videos.
+SEO_BREAKOUT_PERCENTILE = 90   # top 10% counts as "breakout" for lift
+SEO_MIN_TAG_SUPPORT = 4        # a term needs this many videos to be ranked
+SEO_TOP_N = 40                 # rows kept per lift table
+
 # Columns included in the per-video discovery export (order preserved).
 EXPORT_COLUMNS = [
     "breakout_score",
@@ -213,6 +498,7 @@ EXPORT_COLUMNS = [
     "small_creator",
     "short_video",
     # --- SEO / packaging metadata ---
+    "thumbnail_url",
     # Discovery says WHAT to make; these show HOW the winners are packaged.
     "tags",
     "tag_count",
@@ -328,6 +614,26 @@ DEMAND_TAIL_PERCENTILE = 90        # which upper percentile represents "upside"
 # so realistic niche/topic gaps stay off the ceiling and keep resolution.
 DIRECTIONAL_LOG_SCALE = 18.0
 
+# --- Momentum: native signed log scale ---------------------------------
+# signed = MOMENTUM_LOG_SCALE * log10(observed / reference), clamped +-100.
+# 100 makes one order of magnitude exactly fill the scale: 10x -> +100,
+# 10x decline -> -100, doubling -> +30, halving -> -30. The old effective
+# scale was 36, which meant a DOUBLING scored +10.8 and a HALVING -10.8 —
+# both read as "steady", and the -100..+100 range was almost entirely
+# unused because even a 10x collapse only reached -36.
+MOMENTUM_LOG_SCALE = 100.0
+
+# Weights across momentum's components. demand-vs-supply growth is the
+# core signal (is attention outgrowing competition?); recent breakout
+# frequency is the most direct "heating up right now" read; evergreen
+# persistence measures durability, which matters but is closer to a
+# quality-of-market trait than to momentum itself.
+MOMENTUM_COMPONENT_WEIGHTS = {
+    "demand_vs_supply_growth":   0.50,
+    "recent_breakout_frequency": 0.30,
+    "evergreen_persistence":     0.20,
+}
+
 # --- Content Supply (niche-level, scored directionally: topic vs niche) ---
 # Higher score = MORE supply / saturation (worse for opportunity). Only
 # sample-size-invariant supply metrics are scored (see insights.supply_summary).
@@ -353,7 +659,12 @@ MOMENTUM_TAIL_WEIGHT = 0.40
 
 # --- Opportunity derivation ---
 # opportunity = 50 + (demand_score - supply_score)/2, then nudged by momentum.
-OPPORTUNITY_MOMENTUM_INFLUENCE = 0.30   # ±15 pts at momentum extremes (0/100)
+# Momentum's pull on the derived opportunity score. Applied to momentum's
+# SIGNED value (-100..+100), so 0.15 gives the same +-15 point maximum
+# swing the old 0.30-on-(score-50) form did — (score-50) spanned only
+# +-50, while signed spans +-100. Leaving it at 0.30 after the switch to
+# signed input would have silently DOUBLED momentum's influence.
+OPPORTUNITY_MOMENTUM_INFLUENCE = 0.15   # ±15 pts at signed momentum ±100
 
 # 2×2 market verdict thresholds (on the 0–100 niche-relative pillar scores).
 VERDICT_HIGH = 55.0
@@ -380,12 +691,64 @@ GRADE_FAIR_PERCENTILE      = 50
 GRADE_POOR_PERCENTILE      = 30
 
 # Letter-grade cutoffs (score is 0–100).
+# Grade ladder for 0-100 pillar/opportunity scores. Nine bands, symmetric
+# about 50 (the neutral point for demand/supply/opportunity, just as 0 is
+# for momentum): offsets are +-10, +-17, +-25, +-35. Mirrors the momentum
+# ladder's shape so a "B" means a comparable distance from neutral on
+# either scale.
 GRADE_THRESHOLDS = {
-    "A": 80,
-    "B": 65,
-    "C": 50,
-    "D": 35,
-    # below 35 → F
+    "A+": 85,
+    "A":  75,
+    "B+": 67,
+    "B":  60,
+    "C":  40,     # neutral band: 50 +- 10
+    "C-": 33,
+    "D":  25,
+    "D-": 15,
+    # below 15 → F
+}
+
+# Momentum-specific grade bands, in SIGNED units (-100..+100, 0=breakeven).
+#
+# Demand/supply's "neutral" point also sits at score=50 (GRADE_THRESHOLDS'
+# C cutoff), but they're computed from the FULL sample (hundreds+ videos),
+# so sampling noise around that point is small. Momentum compares two
+# 45/90-day WINDOWS instead — a fraction of the data — so its noise around
+# breakeven is much larger. Sharing the same 15-point-wide C band as
+# demand/supply meant a genuinely neutral niche (real signed change ~0)
+# would land just above or just below the C/D line on pure chance almost
+# half the time — exactly the "even breakeven can't get a fair grade"
+# problem. This band is wider and explicitly centred on 0, so real noise
+# has room to move without crossing a letter-grade line.
+# --- Momentum grade ladder, in SIGNED units (-100..+100, 0 = breakeven) ---
+#
+# Nine bands, SYMMETRIC about 0: the thresholds are ±10, ±25, ±45, ±70, so
+# a given magnitude of growth and the same magnitude of decline receive
+# mirror-image grades. That symmetry is only possible because the scale is
+# logarithmic — on a linear scale "doubled" and "halved" are +1.0 and -0.5,
+# so any symmetric band layout would silently punish declines less than it
+# rewards growth.
+#
+# Because the underlying value is 100*log10(ratio), EQUALLY SPACED bands
+# are EQUAL MULTIPLES. Each threshold is a plain-English quantity:
+#     +-10  ->  1.26x  /  0.79x     (+-26% — noise)
+#     +-25  ->  1.78x  /  0.56x     (~+-2x territory begins)
+#     +-45  ->  2.82x  /  0.35x
+#     +-70  ->  5.01x  /  0.20x
+# So a DOUBLING (signed +30) lands in B with real headroom above it, rather
+# than instantly topping the scale — the previous layout put A at +30, which
+# meant everything from a doubling to a 10x surge collapsed into one letter
+# and the whole +30..+100 stretch did no work.
+MOMENTUM_GRADE_THRESHOLDS = {
+    "A+": 70,
+    "A":  45,
+    "B+": 25,
+    "B":  10,
+    "C": -10,     # breakeven band: within about +-26%
+    "C-": -25,
+    "D": -45,
+    "D-": -70,
+    # below -70 → F
 }
 
 # ============================================================

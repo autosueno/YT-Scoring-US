@@ -42,7 +42,6 @@ Public API:
 import json
 import math
 import os
-import re
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -52,12 +51,14 @@ from baseline import Baseline
 from config import (
     EXPORTS_DIR, EXPORT_COLUMNS,
     BREAKOUT_VELOCITY_WEIGHT, BREAKOUT_DEMAND_WEIGHT,
+    BREAKOUT_OUTLIER_WEIGHT, BREAKOUT_LOW_EVIDENCE_VIEWS,
     CLUSTER_MIN_VIDEOS, CLUSTER_MIN_CHANNELS, CLUSTER_NGRAM_SIZES,
     CLUSTER_MAX, CLUSTER_EVIDENCE_WEIGHT, CLUSTER_EVIDENCE_REFERENCE,
     CLUSTER_WEAK_WORDS, DISCOVERY_EXCLUDE_SHORTS,
+    BREAKOUT_TIERS, BREAKOUT_TIER_MIN_VIDEOS, BREAKOUT_MIN_VIEWS_LADDER,
 )
 from insights import _STOPWORDS, _tokenize
-from paths import safe_name
+from paths import safe_name, export_dir_for
 
 
 # ============================================================
@@ -87,13 +88,13 @@ def score_breakouts(df: pd.DataFrame, baseline: Baseline) -> pd.DataFrame:
     velocity_pct = pct_series("breakout_velocity")
     demand_pct = pct_series("views_per_hour")
 
-    # Renormalize weights over whatever components are actually available.
+    # Renormalize weights over whatever components are actually available,
+    # so a dataset missing one column still produces a sane 0-100 score
+    # rather than a silently deflated one.
     parts, weights = [], []
-    w_vel = BREAKOUT_VELOCITY_WEIGHT
-    w_dem = BREAKOUT_DEMAND_WEIGHT
-    w_out = max(0.0, 1.0 - w_vel - w_dem)
-
-    for series, w in ((outlier_pct, w_out), (velocity_pct, w_vel), (demand_pct, w_dem)):
+    for series, w in ((demand_pct, BREAKOUT_DEMAND_WEIGHT),
+                      (outlier_pct, BREAKOUT_OUTLIER_WEIGHT),
+                      (velocity_pct, BREAKOUT_VELOCITY_WEIGHT)):
         if series is not None and w > 0:
             parts.append(series)
             weights.append(w)
@@ -106,6 +107,15 @@ def score_breakouts(df: pd.DataFrame, baseline: Baseline) -> pd.DataFrame:
         out["breakout_score"] = blended
 
     out["breakout_score"] = out["breakout_score"].round(1)
+
+    # Mark thin-evidence entries rather than removing them. A high score
+    # built on 1,700 total views is a real early signal AND a fragile
+    # one; the reader needs to see both facts, not have the row silently
+    # dropped or silently trusted.
+    if "view_count" in out.columns:
+        vc = pd.to_numeric(out["view_count"], errors="coerce")
+        out["low_evidence"] = (vc < BREAKOUT_LOW_EVIDENCE_VIEWS).fillna(True)
+
     return out.sort_values("breakout_score", ascending=False).reset_index(drop=True)
 
 
@@ -217,6 +227,13 @@ def build_clusters(scored_df: pd.DataFrame) -> list:
             "small_creator_share": round(float(sub["small_creator"].mean()), 3)
                 if "small_creator" in sub.columns else None,
             "top_titles": sub.nlargest(3, "breakout_score")["title"].tolist(),
+            # Exact row indices of this cluster's videos. Downstream
+            # consumers (seo.cluster_seo_profiles) previously re-found
+            # these by fuzzy regex on the title, which silently failed
+            # whenever the phrase words were separated by more characters
+            # than the pattern allowed — a cluster could end up with no
+            # profile at all. Carrying the indices removes the guesswork.
+            "video_indices": sorted(int(i) for i in k["_idxs"]),
         })
 
     clusters.sort(key=lambda c: c["cluster_score"], reverse=True)
@@ -248,8 +265,8 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
     slim = ranked[cols].copy()
     slim.insert(0, "rank", range(1, len(slim) + 1))
 
-    os.makedirs(EXPORTS_DIR, exist_ok=True)
-    stem = os.path.join(EXPORTS_DIR, f"{safe_name(niche_name)}_breakout")
+    out_dir = export_dir_for(EXPORTS_DIR, niche_name, "breakouts")
+    stem = os.path.join(out_dir, "breakout")
     paths = {
         "json":         stem + ".json",
         "csv":          stem + ".csv",
@@ -312,11 +329,11 @@ def _markdown_report(slim, clusters, niche_name) -> str:
 >    small_creator_share) — those prove the topic carries the video.
 > 4. Recommend additional seed search queries these clusters suggest.
 > 5. Note any clusters that look like noise rather than a real theme.
-> 6. Using the SEO/packaging columns (tags, tag_count, title_length,
->    description_length, has_chapters, has_captions, duration_seconds,
->    topic_categories), describe how the top-ranked videos are PACKAGED
->    versus the rest, and suggest concrete title/tag/description choices
->    for a new video in the strongest cluster.
+> 6. This file answers WHAT to make. A companion file,
+>    `<niche>_seo.md`, answers HOW to package it — it already computes
+>    tag/title/hashtag lift, structural patterns and per-cluster examples,
+>    so don't re-derive packaging advice by eyeballing the columns below.
+>    Paste that file too if packaging matters for this question.
 """)
 
     if clusters:
@@ -336,6 +353,97 @@ def _markdown_report(slim, clusters, niche_name) -> str:
             for t in c["top_titles"]:
                 out.append(f"  - {str(t)[:110]}")
             out.append("")
+
+    # Tier-broken "top breakouts" summary before the full dump.
+    #
+    # The full ranked list below is comprehensive but noisy — 3,000 rows
+    # is not a browsable format. Break the top of it into the three tiers
+    # so a reader can see the actionable case studies immediately:
+    #   brand-new (<2k)   -> direct case studies for someone starting out
+    #   small (2k-100k)   -> peers with some traction
+    #   top by reach      -> what wins in absolute terms (demand shape)
+    # Same structure as report.py's HTML version, so the two feel consistent.
+    if "channel_subs" in slim.columns:
+        subs = pd.to_numeric(slim["channel_subs"], errors="coerce")
+        tier_notes = {
+            "brand_new":    ("Direct case studies for a new channel — these videos won "
+                             "for channels with almost no subscribers, on topic/title/"
+                             "thumbnail alone. Survivorship-biased (channels this "
+                             "small that appear in search at all are already the "
+                             "exception). Ranked by outlier_ratio."),
+            "small":        ("Channels with some traction but no institutional "
+                             "muscle. Ranked by outlier_ratio."),
+            "top_by_reach": ("What is winning in absolute terms. Reveals what the "
+                             "MARKET wants, independent of who can currently deliver "
+                             "it. Ranked by views_per_hour."),
+        }
+
+        # A slim table for these summary sections — the full column list
+        # of the ranked dump is too wide to scan at a glance.
+        preview_cols = [c for c in ("title", "channel_title", "channel_subs",
+                                    "view_count", "views_per_hour",
+                                    "outlier_ratio", "engagement_rate")
+                        if c in slim.columns]
+
+        out.append("\n## Top breakouts by channel size\n")
+
+        for lo, hi, key, heading in BREAKOUT_TIERS:
+            mask = (subs >= lo) & (subs < hi) if hi is not None else (subs >= lo)
+            tier_df = slim[mask.fillna(False)]
+            tier_size = len(tier_df)
+            if tier_size < BREAKOUT_TIER_MIN_VIDEOS:
+                continue
+
+            rank_col = ("views_per_hour" if key == "top_by_reach"
+                        else "outlier_ratio")
+            if rank_col not in tier_df.columns:
+                rank_col = "views_per_hour" if "views_per_hour" in tier_df.columns else None
+
+            # Floor absolute views on the ratio-ranked tiers. See
+            # BREAKOUT_MIN_VIEWS_LADDER — outlier_ratio is unstable when
+            # the channel's average is tiny, which let a 201-view video
+            # outrank a 445k-view one on a real run.
+            floor_used = None
+            if key != "top_by_reach" and "view_count" in tier_df.columns:
+                vc = pd.to_numeric(tier_df["view_count"], errors="coerce")
+                for floor in BREAKOUT_MIN_VIEWS_LADDER:
+                    qualified = tier_df[(vc >= floor).fillna(False)]
+                    if len(qualified) >= 15 or floor == 0:
+                        tier_df, floor_used = qualified, floor
+                        break
+
+            if rank_col:
+                tier_df = tier_df.sort_values(rank_col, ascending=False)
+            tier_df = tier_df.head(15)
+
+            out.append(f"\n### {heading}  ·  {tier_size:,} videos in tier\n")
+            out.append(f"> {tier_notes.get(key, '')}\n")
+            if floor_used:
+                out.append(f"> Showing only videos above **{floor_used:,} "
+                           f"views** — outlier_ratio is unreliable below "
+                           f"that, because a channel averaging 15 views "
+                           f"produces a 13x ratio from a single 200-view "
+                           f"video.\n")
+            elif floor_used == 0:
+                out.append("> ⚠️ Too few high-view videos in this tier to "
+                           "filter — entries below a few thousand views "
+                           "have unstable ratios and are not case "
+                           "studies.\n")
+            out.append("| " + " | ".join(preview_cols) + " |")
+            out.append("|" + "|".join("---" for _ in preview_cols) + "|")
+            for _, r in tier_df.iterrows():
+                cells = []
+                for c in preview_cols:
+                    v = r[c]
+                    if isinstance(v, float):
+                        v = f"{v:,.1f}"
+                    elif isinstance(v, bool):
+                        v = "yes" if v else ""
+                    v = str(v).replace("|", "\\|").replace("\n", " ")
+                    if c == "title" and len(v) > 70:
+                        v = v[:69] + "…"
+                    cells.append(v)
+                out.append("| " + " | ".join(cells) + " |")
 
     out.append("\n## Full ranked video list\n")
     display_cols = [c for c in slim.columns if c != "video_id"]

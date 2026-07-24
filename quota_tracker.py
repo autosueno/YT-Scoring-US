@@ -25,6 +25,9 @@ from config import QUOTA_COSTS, QUOTA_DAILY_LIMIT, QUOTA_WARN_THRESHOLD
 
 
 class QuotaTracker:
+    """Counts API units. Optionally reports each charge to an
+    ApiKeyManager so per-key usage (units AND percent) can be shown."""
+
     """Accumulates quota usage for one collector run."""
 
     def __init__(self):
@@ -35,6 +38,10 @@ class QuotaTracker:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def attach_keys(self, keys):
+        """Link a key manager so charges are attributed per key."""
+        self._keys = keys
 
     def charge(self, operation: str, count: int = 1) -> int:
         """
@@ -59,15 +66,25 @@ class QuotaTracker:
         cost = QUOTA_COSTS[operation] * count
         self._used += cost
         self._breakdown[operation] = self._breakdown.get(operation, 0) + cost
+        # Attribute the spend to whichever key is currently active, so
+        # usage can be reported per key as units AND percent.
+        keys = getattr(self, "_keys", None)
+        if keys is not None:
+            keys.note_units(cost)
         self._maybe_warn()
         return cost
 
     def summary(self) -> dict:
         """Return a dict describing current usage."""
+        keys = getattr(self, "_keys", None)
+        capacity = keys.total_capacity if keys is not None else QUOTA_DAILY_LIMIT
         return {
             "used": self._used,
             "limit": QUOTA_DAILY_LIMIT,
-            "remaining_estimate": QUOTA_DAILY_LIMIT - self._used,
+            "capacity": capacity,
+            "pct_used": (100.0 * self._used / capacity) if capacity else 0.0,
+            "remaining_estimate": capacity - self._used,
+            "per_key": keys.usage_report() if keys is not None else None,
             "breakdown": dict(self._breakdown),
         }
 

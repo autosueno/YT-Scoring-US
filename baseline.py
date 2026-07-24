@@ -24,7 +24,6 @@ P1, P5, P10, P20, P25, P30, P40, P50, P60, P70, P75, P80, P90, P95, P99.
 import json
 import os
 
-import numpy as np
 import pandas as pd
 
 from paths import statistics_path, insights_path

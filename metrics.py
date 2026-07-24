@@ -39,9 +39,12 @@ Output:
 
 from datetime import datetime, timezone
 import re
+import math
 
 import isodate
 import pandas as pd
+
+from config import MIN_LATIN_SCRIPT_RATIO
 
 
 # ============================================================
@@ -147,10 +150,28 @@ def competition_ingredients(df):
 def opportunity_features(df):
     subs = df["channel_subs"].clip(lower=1)
 
-    # underdog_score: high views from a small subscriber base. Sub count is
-    # damped (sqrt) so the score rewards small channels punching up without
-    # exploding for micro-channels.
-    df["underdog_score"] = df["view_count"] / (subs ** 0.5)
+    # underdog_score: measures a video punching above its channel's weight.
+    #
+    # Old formula was `view_count / sqrt(subs)`. The intent was "reward
+    # small channels doing big views" but the math ended up rewarding
+    # BIG channels more, because sqrt() dampens the subscriber penalty
+    # without reversing it, and huge absolute view counts on major channels
+    # steamroll the effect. In real data CNBC (3.4M subs, 1.9M views)
+    # scored 1,070 while a genuine underdog (50k subs, 41k views) scored
+    # 184 — the opposite of what "underdog" should mean.
+    #
+    # The correct measure is TWO factors combined:
+    #   1. outlier_ratio: how much this video beat its OWN channel's
+    #      average (already computed elsewhere in this file). A video that
+    #      is 5x the channel's norm punched up regardless of channel size.
+    #   2. small-channel weight: 1 / log10(subs+10), so 1k-sub channels
+    #      get ~3x the weight of 1M-sub channels, but the ratio still
+    #      dominates. This DOES reverse the subscriber penalty — being
+    #      small is now a positive, and being enormous is a modest drag.
+    channel_avg_views = df.get("channel_avg_views", subs * 0.05).replace(0, 1)
+    self_outlier = df["view_count"] / channel_avg_views
+    size_weight = 1.0 / (subs.apply(lambda x: max(math.log10(x + 10), 0.5)))
+    df["underdog_score"] = (self_outlier * size_weight * 100).round(1)
 
     # creator_efficiency: views each subscriber yields on an average video
     # for this channel (channel_avg_views / subs). Channel-level lens.
@@ -246,6 +267,35 @@ def seo_features(df):
     # a ranking convention and survive truncation in browse/search UIs.
     df["title_truncated_risk"] = df["title_length"] > 60
 
+    # --- Title STRUCTURE (YouTube weights titles far above tags) ---
+    t = titles.str.lower()
+    df["title_word_count"] = titles.str.split().str.len().fillna(0).astype(int)
+    df["title_is_question"] = t.str.contains(r"\?|^(?:why|how|what|when|which|who|is|are|should|can|do|does)\b", regex=True)
+    df["title_is_howto"] = t.str.contains(r"\bhow to\b|\bguide\b|\btutorial\b|\bexplained\b", regex=True)
+    df["title_is_listicle"] = titles.str.contains(r"^\s*\d+\s|\b\d+\s+(?:ways|tips|things|reasons|steps|stocks|mistakes)\b", case=False, regex=True)
+    df["title_is_comparison"] = t.str.contains(r"\bvs\.?\b|\bversus\b|\bor\b.*\?", regex=True)
+    df["title_has_colon"] = titles.str.contains(":", regex=False)
+    df["title_has_bracket"] = titles.str.contains(r"[\[\(]", regex=True)
+    df["title_has_year"] = titles.str.contains(r"\b20[2-3]\d\b", regex=True)
+    # ALL-CAPS words (excluding 1-2 letter tickers) read as emphasis/shouting.
+    df["title_caps_words"] = titles.apply(
+        lambda s: sum(1 for w in str(s).split() if len(w) > 2 and w.isupper()))
+    # The first ~40 chars survive truncation everywhere; what sits there
+    # is the part most viewers and the index actually see.
+    df["title_head"] = titles.str.slice(0, 40)
+
+    # --- Description: the VISIBLE portion ---
+    # Only ~150 chars show before "Show more". Keyword placement and the
+    # hook both have to live there; the rest is largely for the index.
+    df["desc_visible"] = desc.str.slice(0, 150)
+    df["desc_first_line_length"] = desc.apply(
+        lambda s: len(str(s).split("\n")[0]) if str(s) else 0)
+    df["desc_chapter_count"] = desc.str.count(r"(?:^|\n)\s*\d{1,2}:\d{2}")
+    df["desc_has_cta"] = desc.str.contains(
+        r"subscribe|like this video|comment below|join the channel|newsletter",
+        case=False, regex=True)
+    df["desc_timestamp_dense"] = df["desc_chapter_count"] >= 4
+
     return df
 
 
@@ -328,9 +378,45 @@ def duration_features(df):
         except Exception:
             return 0
 
+    # YouTube omits contentDetails.duration for some items (live streams,
+    # certain premieres). Missing column must not kill the whole build.
+    if "duration" not in df.columns:
+        df["duration"] = ""
     df["duration_seconds"] = df["duration"].apply(seconds)
     df["long_video"] = df["duration_seconds"] > 600
     df["short_video"] = df["duration_seconds"] < 180
+
+    # Language signals. `declared_english` trusts the uploader's metadata
+    # when present; `latin_ratio` is the script fallback for the very
+    # common case where both language fields are empty (or wrong).
+    if "title" in df.columns:
+        df["latin_ratio"] = df["title"].apply(latin_script_ratio)
+    else:
+        df["latin_ratio"] = 1.0
+    lang_cols = [c for c in ("default_language", "audio_language") if c in df.columns]
+    if lang_cols:
+        def _is_en(value):
+            # Defensive: these columns arrive as object dtype with a mix of
+            # strings, NaN floats and None depending on what the API
+            # returned, and a row-wise apply re-infers dtypes, so an
+            # .astype(str) upstream is not sufficient.
+            if value is None:
+                return False
+            try:
+                text = str(value).strip().lower()
+            except Exception:
+                return False
+            return bool(text) and text not in ("nan", "none") and text.startswith("en")
+
+        declared = df[lang_cols].apply(
+            lambda row: any(_is_en(v) for v in row), axis=1)
+    else:
+        declared = pd.Series(False, index=df.index)
+    df["declared_english"] = declared
+    # Keep if the uploader says English OR the script says Latin. Either
+    # alone is unreliable: metadata is often blank, and script alone can't
+    # distinguish English from other Latin-script languages.
+    df["likely_english"] = declared | (df["latin_ratio"] >= MIN_LATIN_SCRIPT_RATIO)
     return df
 
 
@@ -350,7 +436,65 @@ def upload_features(df):
 # MASTER FUNCTION
 # ============================================================
 
+# Columns every downstream feature function assumes exist.
+REQUIRED_COLUMNS = ["published_at", "view_count", "title"]
+
+
+# ============================================================
+# LANGUAGE / SCRIPT DETECTION
+# ============================================================
+
+_EMOJI_AND_SYMBOLS = re.compile(
+    "[" "\U0001F000-\U0001FAFF" "\U00002600-\U000027BF"
+    "\U0001F1E6-\U0001F1FF" "\U00002190-\U000021FF"
+    "\U00002B00-\U00002BFF" "\uFE00-\uFE0F" "]", flags=re.UNICODE)
+
+
+def latin_script_ratio(text) -> float:
+    """
+    Share of a string's ALPHABETIC characters that are Latin.
+
+    Why this exists: YouTube's relevanceLanguage is only a ranking hint and
+    regionCode only affects viewability, so an English/US-targeted search
+    still returns Bengali, Hindi, Korean and Indonesian videos — all of
+    which appeared in a real finance build. The declared language fields
+    (defaultLanguage / defaultAudioLanguage) are unreliable: often empty,
+    and frequently set to "en" on non-English uploads.
+
+    Script is the robust fallback. Emoji, digits, punctuation and
+    whitespace are stripped FIRST — they carry no language signal, and
+    counting them would misjudge emoji-heavy English titles.
+
+    Returns 1.0 for "no alphabetic characters at all" so that a
+    numeric/emoji-only title is never dropped as foreign.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return 1.0
+    cleaned = _EMOJI_AND_SYMBOLS.sub("", text)
+    letters = [ch for ch in cleaned if ch.isalpha()]
+    if not letters:
+        return 1.0
+    latin = sum(1 for ch in letters if ord(ch) < 0x0250 or 0x1E00 <= ord(ch) <= 0x1EFF)
+    return latin / len(letters)
+
+
 def calculate_all(df):
+    """
+    Compute every per-video feature. Returns the frame unchanged if there
+    is nothing to compute — an empty or column-less frame is a legitimate
+    outcome when a build is quota-truncated before any video metadata
+    lands, and it must not raise.
+    """
+    if df is None or df.empty:
+        return df if df is not None else pd.DataFrame()
+    missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"calculate_all() requires column(s) {missing}. Got: "
+            f"{sorted(df.columns)[:12]}... — this usually means the video "
+            "download returned an unexpected shape."
+        )
+
     # Pillar 1 — Demand (sets hours_since_upload first; others depend on it)
     df = demand_features(df)
 

@@ -33,11 +33,12 @@ import math
 import insights
 from baseline import Baseline
 from config import (
-    DEMAND_METRICS, SUPPLY_METRICS,
+    SUPPLY_METRICS,
     DEMAND_METRIC_GROUPS, DEMAND_GROUP_WEIGHTS,
     DEMAND_TAIL_WEIGHT, DEMAND_TAIL_PERCENTILE, DIRECTIONAL_LOG_SCALE,
     OPPORTUNITY_MOMENTUM_INFLUENCE, OPPORTUNITY_INDICATOR_KEYS,
-    VERDICT_HIGH, VERDICT_LOW, GRADE_THRESHOLDS,
+    VERDICT_HIGH, VERDICT_LOW, GRADE_THRESHOLDS, MOMENTUM_GRADE_THRESHOLDS,
+    MOMENTUM_LOG_SCALE, MOMENTUM_COMPONENT_WEIGHTS,
 )
 
 
@@ -54,13 +55,37 @@ def grade_topic(df, baseline: Baseline, topic: str) -> dict:
 
 def grade_niche(df, baseline: Baseline, niche: str) -> dict:
     """
-    Evaluate a niche against a baseline. Against its OWN baseline, demand and
-    supply both land near 50 → opportunity ~50 (a niche is neutral relative
-    to itself). Pass a different niche's baseline to compare markets.
+    Evaluate a niche against a baseline.
+
+    WHAT THIS IS GRADING AGAINST: when the baseline was built FROM this
+    same niche (the normal case — option 5), you are comparing the niche
+    to itself. That is not perfectly neutral, and the asymmetry between
+    pillars is worth knowing rather than discovering by staring at
+    unexplained numbers:
+
+    - SUPPLY compares median-vs-median, so a true self-comparison lands
+      at EXACTLY 50 — confirming nothing except that the comparison ran.
+    - DEMAND blends each metric's median percentile with its P90 percentile
+      (DEMAND_TAIL_WEIGHT=0.35, favouring "who's currently raving" over
+      pure typicality). A median sits at the 50th percentile of its own
+      distribution by definition; P90 sits at the 90th by definition. So a
+      true self-comparison is STRUCTURALLY forced to
+      0.65*50 + 0.35*90 = 64 — not because the niche is unusually strong,
+      but because of how the formula is built. Expect demand ~64 on every
+      niche self-grade; it is not a finding.
+    - MOMENTUM is the only pillar that is genuinely informative here: it
+      compares a RECENT window against a PRIOR one within the same data,
+      so a self-grade can and does move away from a fixed constant.
+
+    This function is actually informative when you pass a DIFFERENT
+    niche's baseline — comparing "finance" videos against a "gaming"
+    baseline, say — where none of demand/supply is tautological.
     """
     if df.empty:
         return _empty_result(niche, "niche")
-    return _grade(df, baseline, niche, "niche")
+    result = _grade(df, baseline, niche, "niche")
+    result["self_comparison"] = (baseline.niche_name == niche)
+    return result
 
 
 # ============================================================
@@ -241,31 +266,108 @@ def _momentum_pillar(df, baseline) -> dict:
                           f"(recent window: {recent_n}, prior: {prior_n} videos)"),
             "metrics":   {},
         }
-    p = _pillar(_momentum_scores(df, baseline))
-    p["abstained"] = False
+    signed_scores = _momentum_scores(df, baseline)
+    if not signed_scores:
+        return {"score": 50.0, "grade": "C", "abstained": False,
+                "signed_change": 0.0, "metrics": {}}
+
+    # Weighted average IN SIGNED SPACE — the components are commensurable
+    # there (all "recent vs reference", same units, same zero point), so
+    # weighting them is meaningful. Weighting 0-100 values that had
+    # different zero-points, as an earlier version effectively did, is not.
+    total_w = sum(MOMENTUM_COMPONENT_WEIGHTS.get(k, 0.0) for k in signed_scores)
+    if total_w <= 0:
+        signed = sum(signed_scores.values()) / len(signed_scores)
+    else:
+        signed = sum(v * MOMENTUM_COMPONENT_WEIGHTS.get(k, 0.0)
+                     for k, v in signed_scores.items()) / total_w
+    signed = max(-100.0, min(100.0, signed))
+
+    p = {
+        "signed_change": round(signed, 1),
+        # 0-100 view DERIVED from the signed value (not the reverse), kept
+        # so the opportunity formula and older consumers keep working.
+        "score": round(50.0 + signed / 2.0, 1),
+        "grade": _momentum_letter_grade(signed),
+        "abstained": False,
+        "metrics": {k: round(v, 1) for k, v in signed_scores.items()},
+        "weights": {k: MOMENTUM_COMPONENT_WEIGHTS.get(k, 0.0)
+                    for k in signed_scores},
+    }
     return p
 
 
+def _signed_log(observed, reference):
+    """
+    The engine's momentum primitive: a signed, symmetric, log-scaled
+    comparison of an observed quantity against its reference.
+
+        signed = MOMENTUM_LOG_SCALE * log10(observed / reference)
+
+    clamped to +-100. Properties that make this the right shape:
+      - 0 means observed == reference (true breakeven, no rescaling needed
+        to land there),
+      - doubling and halving give exactly +30 and -30 — equal magnitudes,
+        which a LINEAR scale cannot do (there, +1.0 vs -0.5),
+      - one order of magnitude fills the scale exactly (10x -> +100),
+      - extremes compress, so a 50x fluke does not run away from a 10x
+        genuine surge.
+    """
+    if observed is None or reference is None:
+        return None
+    o, r = float(observed), float(reference)
+    if r <= 0 or o <= 0:
+        if o == r:
+            return 0.0
+        return 60.0 if o > r else -60.0     # directional but not precise
+    return max(-100.0, min(100.0, MOMENTUM_LOG_SCALE * math.log10(o / r)))
+
+
 def _momentum_scores(df, baseline) -> dict:
+    """
+    Momentum components, each on the SIGNED -100..+100 log scale where
+    0 = breakeven. The signed scale IS the pipeline here; the 0-100 view
+    is derived from it afterwards, not the other way round.
+
+    Every component answers the same shaped question — "how does the
+    recent period compare to its reference?" — so they are directly
+    commensurable and can be weighted against each other meaningfully:
+
+      demand_vs_supply_growth   demand growth vs supply growth
+      recent_breakout_frequency recent breakout rate vs this niche's own
+                                prior-window rate
+      evergreen_persistence     old videos' views/hour vs new videos'
+                                (reference 1.0 = no decay)
+    """
     mom = insights.momentum_summary(df)
     scores = {}
 
     dg, sg = mom.get("demand_growth"), mom.get("supply_growth")
-    if dg is not None and sg is not None and (dg + sg) > 0:
-        # Demand outpacing supply → > 50.
-        scores["demand_vs_supply_growth"] = 100.0 * dg / (dg + sg)
+    if dg is not None and sg is not None:
+        s = _signed_log(dg, sg)
+        if s is not None:
+            scores["demand_vs_supply_growth"] = s
     elif dg is not None:
-        scores["demand_growth"] = 100.0 * dg / (dg + 1.0)
+        s = _signed_log(dg, 1.0)
+        if s is not None:
+            scores["demand_vs_supply_growth"] = s
 
-    # Evergreen persistence contributes to a durable (strengthening) market.
+    rbf, pbf = mom.get("recent_breakout_frequency"), mom.get("prior_breakout_frequency")
+    if rbf is not None and pbf is not None and pbf > 0:
+        s = _signed_log(rbf, pbf)
+        if s is not None:
+            scores["recent_breakout_frequency"] = s
+    elif rbf is not None and pbf == 0:
+        # No breakouts at all in the prior window: any recent breakout is
+        # real acceleration, but there is no ratio to take. Stay modest.
+        scores["recent_breakout_frequency"] = 20.0 if rbf > 0 else 0.0
+
     ev = mom.get("evergreen_score")
     if ev is not None:
-        scores["evergreen_persistence"] = min(ev * 50.0, 100.0)  # ev=1 → 50, ev=2 → 100
+        s = _signed_log(ev, 1.0)     # 1.0 = old videos hold up as well as new
+        if s is not None:
+            scores["evergreen_persistence"] = s
 
-    # Recent breakout frequency: fresh overperformers = heating up.
-    rbf = mom.get("recent_breakout_frequency")
-    if rbf is not None:
-        scores["recent_breakout_frequency"] = min(rbf * 300.0, 100.0)
     return scores
 
 
@@ -286,12 +388,19 @@ def _derive_opportunity(demand: float, supply: float, momentum_pillar: dict) -> 
     """
     base = 50.0 + (demand - supply) / 2.0
 
-    momentum_score = momentum_pillar.get("score")
-    abstained = momentum_pillar.get("abstained", False) or momentum_score is None
+    signed_momentum = momentum_pillar.get("signed_change")
+    abstained = momentum_pillar.get("abstained", False) or signed_momentum is None
     if abstained:
         score = base
     else:
-        score = base + (momentum_score - 50.0) * OPPORTUNITY_MOMENTUM_INFLUENCE
+        # Read the SIGNED value directly. Momentum's natural neutral is 0,
+        # so a breakeven niche contributes exactly nothing — no nudge in
+        # either direction. The previous form, (score-50)*INFLUENCE, was
+        # arithmetically equivalent ONLY once momentum's zero-point was
+        # correct; while two of its components were mis-centred, every
+        # niche got a silent downward nudge regardless of what was
+        # actually happening in it.
+        score = base + signed_momentum * OPPORTUNITY_MOMENTUM_INFLUENCE
     score = max(0.0, min(100.0, score))
 
     d_high, d_low = demand >= VERDICT_HIGH, demand < VERDICT_LOW
@@ -329,7 +438,10 @@ def _derive_opportunity(demand: float, supply: float, momentum_pillar: dict) -> 
         "verdict":       verdict,
         "demand_score":  round(demand, 1),
         "supply_score":  round(supply, 1),
-        "momentum_score": (round(momentum_score, 1) if momentum_score is not None else None),
+        "momentum_signed": (round(signed_momentum, 1)
+                            if signed_momentum is not None else None),
+        "momentum_score": (round(50.0 + signed_momentum / 2.0, 1)
+                           if signed_momentum is not None else None),
         "momentum_abstained": abstained,
         "imbalance":     round(demand - supply, 1),
     }
@@ -391,6 +503,17 @@ def _letter_grade(score: float) -> str:
     return "F"
 
 
+def _momentum_letter_grade(signed_change: float) -> str:
+    """Letter grade from momentum's SIGNED (-100..+100, 0=breakeven) value,
+    using MOMENTUM_GRADE_THRESHOLDS' wider neutral band instead of the
+    generic 0-100 GRADE_THRESHOLDS."""
+    for letter, threshold in sorted(MOMENTUM_GRADE_THRESHOLDS.items(),
+                                    key=lambda x: -x[1]):
+        if signed_change >= threshold:
+            return letter
+    return "F"
+
+
 # ============================================================
 # HIGHLIGHTS
 # ============================================================
@@ -411,12 +534,21 @@ def _highlights(df, baseline, result) -> list:
         word = "above" if s >= 55 else ("below" if s < 45 else "near")
         hi.append(f"Supply: content freshness is {word} the niche norm.")
 
-    mom = insights.momentum_summary(df)
-    if not result["pillars"]["momentum"].get("abstained") and mom.get("trend_direction"):
-        hi.append(f"Momentum: demand trend is {mom['trend_direction']}"
-                  + (f" (evergreen {mom['evergreen_score']:.2f})" if mom.get("evergreen_score") is not None else "")
-                  + ".")
-    elif result["pillars"]["momentum"].get("abstained"):
+    mom_pillar = result["pillars"]["momentum"]
+    if not mom_pillar.get("abstained") and mom_pillar.get("score") is not None:
+        # Derived from the SAME score that produced the grade — previously
+        # this used insights.momentum_summary()'s raw trend_direction
+        # (demand_growth alone), which could say "rising" while the
+        # composite grade read D/F, because trend_direction never saw the
+        # evergreen/breakout components dragging the grade down. One
+        # number now drives both the label and the grade, so they cannot
+        # disagree.
+        signed = mom_pillar.get("signed_change", 0.0)
+        label = ("heating up" if signed >= 15 else
+                 "cooling off" if signed <= -15 else "steady")
+        hi.append(f"Momentum: {label} ({signed:+.0f} vs. breakeven, "
+                  f"{mom_pillar['grade']}).")
+    elif mom_pillar.get("abstained"):
         hi.append("Momentum: not scored — sample lacks enough recent videos "
                   "for a reliable trend (widen collection recency or refresh more often).")
 

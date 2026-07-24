@@ -49,6 +49,24 @@ def _tokenize(text):
     return text.split()
 
 
+def _num(value, default=0.0):
+    """
+    Coerce a cell to float, treating NA/None/non-numeric as `default`.
+
+    The idiom `value or 0` looks equivalent but raises
+    "TypeError: boolean value of NA is ambiguous" on pandas NA — which is
+    exactly what a quota-truncated build produces (channel metadata
+    missing -> outlier_ratio is NA). That crashed the very
+    graceful-degradation path meant to salvage a partial build.
+    """
+    if value is None or pd.isna(value):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _ngram_stats(df, n):
     """
     Aggregate per-phrase stats across titles. Returns a list of dicts with
@@ -73,11 +91,11 @@ def _ngram_stats(df, n):
 
         for g in set(grams):  # count each phrase once per title
             counts[g] += 1
-            view_sums[g] += row.get("view_count", 0) or 0
+            view_sums[g] += _num(row.get("view_count"))
             if has_vph:
-                vph_sums[g] += row.get("views_per_hour", 0) or 0
+                vph_sums[g] += _num(row.get("views_per_hour"))
             if has_out:
-                outlier_sums[g] += row.get("outlier_ratio", 0) or 0
+                outlier_sums[g] += _num(row.get("outlier_ratio"))
 
     rows = []
     for g, c in counts.items():
@@ -428,10 +446,18 @@ def momentum_summary(df):
             evergreen_score = float(min(old / new, 2.0))  # cap at 2x
     decay_rate = (1.0 - evergreen_score) if evergreen_score is not None else None
 
-    # Recent breakout frequency (uses raw outlier_ratio ingredient).
+    # Recent breakout frequency (uses raw outlier_ratio ingredient), AND
+    # the same rate in the PRIOR window — the grader needs both to know
+    # whether "recent" is elevated or depressed relative to what this
+    # niche's own data normally looks like, rather than judging it against
+    # an arbitrary fixed constant.
     recent_breakout_frequency = None
-    if "outlier_ratio" in df.columns and recent_mask.sum() > 0:
-        recent_breakout_frequency = float((df.loc[recent_mask, "outlier_ratio"] >= 3).mean())
+    prior_breakout_frequency = None
+    if "outlier_ratio" in df.columns:
+        if recent_mask.sum() > 0:
+            recent_breakout_frequency = float((df.loc[recent_mask, "outlier_ratio"] >= 3).mean())
+        if prior_mask.sum() > 0:
+            prior_breakout_frequency = float((df.loc[prior_mask, "outlier_ratio"] >= 3).mean())
 
     trend_direction = None
     if demand_growth is not None:
@@ -450,6 +476,7 @@ def momentum_summary(df):
         "evergreen_score": evergreen_score,     # ~1 = evergreen, <1 = decaying
         "decay_rate": decay_rate,
         "recent_breakout_frequency": recent_breakout_frequency,
+        "prior_breakout_frequency": prior_breakout_frequency,
     }
 
 
@@ -516,7 +543,6 @@ def opportunity_indicators(df):
     if df.empty:
         return {}
 
-    n = len(df)
     unique_channels = int(df["channel_id"].nunique()) if "channel_id" in df.columns else 0
     total_views = float(df["view_count"].sum()) if "view_count" in df.columns else 0.0
 

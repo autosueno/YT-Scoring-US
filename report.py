@@ -27,9 +27,11 @@ import json
 import os
 from datetime import datetime, timezone
 
+import html
 import pandas as pd
 
-from config import SUMMARY_COLUMNS, TERMINAL_MAX_ROWS
+from config import (SUMMARY_COLUMNS, TERMINAL_MAX_ROWS, BREAKOUT_TIERS,
+                    BREAKOUT_TIER_MIN_VIDEOS, BREAKOUT_MIN_VIEWS_LADDER)
 
 
 # ============================================================
@@ -146,9 +148,19 @@ def print_niche_summary(meta: dict, df: pd.DataFrame):
 
 
 def print_quota(tracker):
-    """Print the quota tracker summary."""
+    """Print quota usage as units AND percent, with per-key detail."""
+    s = tracker.summary()
+    used, cap = s["used"], s.get("capacity") or s["limit"]
+    pct = s.get("pct_used", 100.0 * used / cap if cap else 0)
     print()
-    print(str(tracker))
+    print(f"  Quota used : {used:,} / {cap:,} units  ({pct:.1f}%)")
+    bar_len = int(pct / 5)
+    print(f"               [{'█' * bar_len}{'·' * (20 - bar_len)}]")
+    if s.get("per_key"):
+        print(f"  Per key    : {s['per_key']}")
+    if s.get("breakdown"):
+        bits = ", ".join(f"{k} {v:,}" for k, v in s["breakdown"].items())
+        print(f"  Breakdown  : {bits}")
     print()
 
 
@@ -369,30 +381,115 @@ def _html_diagnostics(diag) -> str:
 
 
 def _html_video_table(df) -> str:
-    """Raw evidence — deliberately last; the market read comes first."""
+    """
+    Raw evidence — deliberately last; the market read comes first.
+
+    Renders three separate tables, one per BREAKOUT_TIER:
+      - Brand-new (<2k subs): direct case studies for creators just starting
+      - Small (2k-100k): "peers with some traction"
+      - Top overall (100k+, ranked by views/hour): what wins in absolute terms
+
+    Different questions, different answers. A brand-new creator gets more
+    from the first table (survivorship-biased but relevant). The last
+    table still matters because it reveals demand shape — what the market
+    wants, regardless of who can currently deliver it.
+    """
     if df is None or df.empty:
         return ""
     cols = [c for c in SUMMARY_COLUMNS if c in df.columns]
     if not cols:
         return ""
-    top = (df.sort_values("views_per_hour", ascending=False).head(TERMINAL_MAX_ROWS)
-           if "views_per_hour" in df.columns else df.head(TERMINAL_MAX_ROWS))
-    header = "".join(f"<th>{c}</th>" for c in cols)
-    body = ""
-    for _, row in top.iterrows():
-        cells = ""
-        for c in cols:
-            v = row.get(c, "")
-            if isinstance(v, float):
-                v = f"{v:,.3f}" if abs(v) < 10 else f"{v:,.1f}"
-            elif isinstance(v, bool):
-                v = "✓" if v else "—"
-            cells += f"<td>{v}</td>"
-        body += f"<tr>{cells}</tr>"
-    return ("  <div class='section-label'>Raw evidence</div>\n"
-            "  <h2>Top Videos (by views/hour)</h2>\n"
-            f'  <div style="overflow-x:auto"><table><thead><tr>{header}</tr></thead>'
-            f"<tbody>{body}</tbody></table></div>\n")
+
+    def _render_table(subset, heading, note=""):
+        if subset.empty:
+            return ""
+        header = "".join(f"<th>{c}</th>" for c in cols)
+        body = ""
+        for _, row in subset.iterrows():
+            cells = ""
+            for c in cols:
+                v = row.get(c, "")
+                if isinstance(v, float):
+                    v = f"{v:,.3f}" if abs(v) < 10 else f"{v:,.1f}"
+                elif isinstance(v, bool):
+                    v = "✓" if v else "—"
+                cells += f"<td>{v}</td>"
+            body += f"<tr>{cells}</tr>"
+        note_html = f'<p class="meta">{note}</p>' if note else ""
+        # HTML-escape the heading — tier names in config use raw <, > (e.g.
+        # "<2k subs") which would otherwise be parsed as tags and swallow
+        # the rest of the section.
+        return (f"  <h2>{html.escape(heading)}</h2>\n{note_html}"
+                f'  <div style="overflow-x:auto"><table><thead><tr>{header}</tr></thead>'
+                f"<tbody>{body}</tbody></table></div>\n")
+
+    out = ["  <div class='section-label'>Raw evidence</div>\n"]
+
+    if "channel_subs" not in df.columns:
+        # Fall back to the simple overall list if we somehow lack sub data.
+        top = (df.sort_values("views_per_hour", ascending=False).head(TERMINAL_MAX_ROWS)
+               if "views_per_hour" in df.columns else df.head(TERMINAL_MAX_ROWS))
+        out.append(_render_table(top, "Top Videos (by views/hour)"))
+        return "".join(out)
+
+    subs = pd.to_numeric(df["channel_subs"], errors="coerce")
+
+    tier_notes = {
+        "brand_new": ("<b>Direct case studies for a new channel.</b> These videos "
+                      "won for channels with almost no subscribers — meaning they "
+                      "won on topic/title/thumbnail alone, which is exactly what "
+                      "you can control at that size. Survivorship-biased: channels "
+                      "this small that appear in search results at all are "
+                      "already the exception. Ranked by outlier ratio (how much "
+                      "each video beat its own channel's average)."),
+        "small":      ("Channels with some traction but no institutional muscle. "
+                      "Ranked by outlier ratio."),
+        "top_by_reach": ("What's winning in absolute terms. Different signal from "
+                        "the tables above — this reveals what the MARKET wants, "
+                        "not what small channels can currently deliver. Ranked "
+                        "by views/hour."),
+    }
+
+    for lo, hi, key, heading in BREAKOUT_TIERS:
+        mask = (subs >= lo) & (subs < hi) if hi is not None else (subs >= lo)
+        tier_df = df[mask.fillna(False)]
+        if len(tier_df) < BREAKOUT_TIER_MIN_VIDEOS:
+            continue
+
+        # Small-channel tiers ranked by outlier_ratio (self-beating);
+        # top-by-reach ranked by absolute views/hour. That's the whole
+        # reason for the split.
+        floor_used = None
+        if key == "top_by_reach":
+            rank_col = "views_per_hour" if "views_per_hour" in tier_df.columns else None
+        else:
+            rank_col = "outlier_ratio" if "outlier_ratio" in tier_df.columns else "views_per_hour"
+            # Floor absolute views before ranking by ratio — see
+            # BREAKOUT_MIN_VIEWS_LADDER. Without this a 201-view video
+            # on a 15-view-average channel outranks a 445k-view video.
+            if "view_count" in tier_df.columns:
+                vc = pd.to_numeric(tier_df["view_count"], errors="coerce")
+                for floor in BREAKOUT_MIN_VIEWS_LADDER:
+                    qualified = tier_df[(vc >= floor).fillna(False)]
+                    if len(qualified) >= TERMINAL_MAX_ROWS or floor == 0:
+                        tier_df, floor_used = qualified, floor
+                        break
+
+        if rank_col:
+            tier_df = tier_df.sort_values(rank_col, ascending=False)
+        tier_df = tier_df.head(TERMINAL_MAX_ROWS)
+
+        note = tier_notes.get(key, "")
+        n_note = f" &nbsp;·&nbsp; {len(df[mask.fillna(False)]):,} videos in this tier"
+        if floor_used:
+            n_note += (f", showing only those above {floor_used:,} views "
+                       f"(ratio is unreliable below that)")
+        elif floor_used == 0:
+            n_note += (" &nbsp;·&nbsp; ⚠️ too few high-view videos to filter; "
+                       "low-view entries may have unstable ratios")
+        out.append(_render_table(tier_df, heading, note=note + n_note))
+
+    return "".join(out)
 
 
 # ============================================================
