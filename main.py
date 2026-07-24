@@ -42,6 +42,7 @@ import discover
 import seo
 import dashboard
 import angles
+import channel as channel_mod
 import calendars as cal
 import paths as paths_mod
 import config
@@ -375,8 +376,9 @@ def _menu():
     print("  5) Grade an existing niche (no API calls)")
     print("  6) Thumbnail contact sheet creator")
     print("  7) Search intent & Reddit signals (external demand)")
-    print("  8) Quit")
-    return input("\nChoose [1-8]: ").strip()
+    print("  8) Tear down a single channel")
+    print("  9) Quit")
+    return input("\nChoose [1-9]: ").strip()
 
 
 def _dispatch(choice):
@@ -431,10 +433,67 @@ def _dispatch(choice):
         _dispatch_signals()
 
     elif choice == "8":
+        _dispatch_channel()
+
+    elif choice == "9":
         return "quit"
 
     else:
         print("Invalid choice.")
+
+
+def _dispatch_channel():
+    """
+    Option 8 — take one channel apart.
+
+    Costs roughly 13 units for a 300-video channel, versus 13,000 for a
+    niche build, because a channel's catalogue comes from its uploads
+    playlist (1 unit per 50 videos) rather than from search (100 per
+    call). Pasting an @handle or a /channel/UC... URL is free to
+    resolve; a plain channel name needs a search first and costs 100.
+    """
+    keys = _load_keys_or_exit()
+    raw = input("Channel @handle, URL, or ID: ").strip()
+    if not raw:
+        print("  (nothing given — cancelled)")
+        return
+
+    kind, _ = channel_mod.parse_channel_input(raw)
+    if kind == "search":
+        print("  Note: that needs a name search (100 units). Pasting the "
+              "@handle or /channel/UC... URL costs 1.")
+
+    tracker = QuotaTracker()
+    tracker.attach_keys(keys)
+    print("  Resolving...")
+    info = channel_mod.resolve_channel(keys, raw, tracker)
+    if not info:
+        print("  Channel not found. Check the handle or paste the full URL.")
+        return
+
+    print(f"  {info['title']} — {info['subscribers']:,} subs, "
+          f"{info['video_count']:,} videos published")
+    cap = min(info["video_count"], config.CHANNEL_MAX_VIDEOS)
+    est = 1 + 2 * -(-cap // 50)
+    print(f"  Will analyse up to {cap:,} videos (~{est} quota units)")
+    if input("  Proceed? [Y/n]: ").strip().lower() == "n":
+        print("  (cancelled)")
+        return
+
+    df = channel_mod.fetch_catalog(keys, info, tracker, max_videos=cap)
+    if df.empty:
+        print("  No videos retrieved.")
+        return
+
+    niche_for_compare = input(
+        "  Compare against a niche you've built? (Enter to skip): ").strip()
+    profile = channel_mod.analyze_channel(df, info,
+                                          niche_name=niche_for_compare or None)
+    paths = channel_mod.export_channel_report(df, profile, tracker)
+    print(f"\n  Analysed {len(df):,} videos")
+    for k, v in paths.items():
+        print(f"    {k:18s} → {v}")
+    report.print_quota(tracker)
 
 
 def _dispatch_signals():
