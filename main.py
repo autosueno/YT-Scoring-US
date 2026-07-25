@@ -43,6 +43,7 @@ import seo
 import dashboard
 import angles
 import channel as channel_mod
+import trends as trends_mod
 import calendars as cal
 import paths as paths_mod
 import config
@@ -163,12 +164,20 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
     # Clustering still earns its place here: within one topic it separates
     # sub-angles ("for beginners" vs "vs ETFs" vs "best of 2026").
     try:
+        import paths as _paths
+        topic_out = _paths.topic_export_dir(config.EXPORTS_DIR, topic, "packaging")
         scored = discover.score_breakouts(topic_df, baseline)
         clusters = discover.build_clusters(scored)
-        seo_paths = seo.export_seo_report(scored, clusters, f"topic_{topic}")
+        # SEO report analyses what's working; tag generator hands you a
+        # ready-to-use list. Different jobs — the first is diagnostic,
+        # the second is the thing you paste into the upload form.
+        seo_paths = seo.export_seo_report(scored, clusters, topic,
+                                          out_dir_override=topic_out)
+        tags_path = seo.export_tag_list(topic_df, topic, out_dir=topic_out)
         print("\nSEO & packaging report for this topic:")
         for fmt, p in seo_paths.items():
             print(f"  {fmt:12s} → {p}")
+        print(f"  {'tags':12s} → {tags_path}")
         if len(topic_df) < 200:
             print(f"  ⚠️  Only {len(topic_df)} videos — lift figures from a "
                   f"small sample are noisy; treat them as hints.")
@@ -377,8 +386,9 @@ def _menu():
     print("  6) Thumbnail contact sheet creator")
     print("  7) Search intent & Reddit signals (external demand)")
     print("  8) Tear down a single channel")
-    print("  9) Quit")
-    return input("\nChoose [1-9]: ").strip()
+    print("  9) What changed since the last build")
+    print(" 10) Quit")
+    return input("\nChoose [1-10]: ").strip()
 
 
 def _dispatch(choice):
@@ -436,10 +446,65 @@ def _dispatch(choice):
         _dispatch_channel()
 
     elif choice == "9":
+        _dispatch_trends()
+
+    elif choice == "10":
         return "quit"
 
     else:
         print("Invalid choice.")
+
+
+def _dispatch_trends():
+    """
+    Option 9 — compare the live dataset against the last archived build.
+
+    No API calls: every rebuild already archives the previous dataset to
+    history/, and this reads one. The payoff is the only measured (rather
+    than inferred) demand figure the engine produces — actual views
+    gained between two observations, which separates a video still being
+    watched from one that stopped months ago.
+    """
+    niche = input("Niche display name: ").strip()
+    if not niche:
+        print("  (no niche given — cancelled)")
+        return
+    if not _require_database(niche):
+        return
+
+    snaps = trends_mod.list_snapshots(niche)
+    if not snaps:
+        print(f"\n  No archived builds for {niche!r} yet.")
+        print("  History is written when you REBUILD a niche — the previous")
+        print("  dataset is moved to history/ before the new one lands. Run")
+        print("  option 1 again in a few days and this will have something")
+        print("  to compare against.")
+        return
+
+    print(f"  {len(snaps)} archived build(s): "
+          + ", ".join(s["date"] for s in snaps[-4:]))
+    df = collector.load_database(niche)
+    res = trends_mod.export_trend_report(niche, df)
+    if res.get("error"):
+        msgs = {"no_history": "No archived builds found.",
+                "unreadable": "The most recent archive could not be read.",
+                "incomparable": "Snapshots have no overlapping videos."}
+        print(f"  {msgs.get(res['error'], res['error'])}")
+        return
+
+    c = res["_comparison"]
+    print(f"\n  {c['matched']:,} videos present in both snapshots"
+          + (f", {c['days_between']:.0f} days apart" if c.get("days_between") else ""))
+    if c.get("total_gained"):
+        print(f"  Niche gained {c['total_gained']:,} measured views")
+    if "still_climbing" in c:
+        print(f"  {c['still_climbing']} still climbing · "
+              f"{c['cooled_off']} cooled off")
+    if not c.get("reliable"):
+        print("  ⚠️  Little separation between builds — treat as indicative")
+    for k, v in res.items():
+        if not k.startswith("_"):
+            print(f"    {k:14s} → {v}")
 
 
 def _dispatch_channel():
@@ -756,4 +821,13 @@ def interactive():
 
 
 if __name__ == "__main__":
+    # Documentation is a MAINTENANCE action, not an analysis one, so it
+    # lives behind a flag rather than taking a slot in a menu that is
+    # already nine items long.
+    if "--docs" in sys.argv:
+        import docs
+        print("Regenerating documentation from docs.py...")
+        docs.generate_all()
+        print("\nEdit docs.py, not the generated files.")
+        sys.exit(0)
     interactive()

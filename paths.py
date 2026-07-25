@@ -143,6 +143,25 @@ def topic_dir(topic: str) -> str:
     return os.path.join(TOPICS_DIR, safe_name(topic))
 
 
+def topic_export_dir(exports_root: str, topic: str, section: str = None) -> str:
+    """
+    exports/_topics/<topic>/<section>/
+
+    Topic grades used to write to exports/topic_<name>/ — a flat sibling
+    of every niche folder, prefixed to disambiguate. That put topics and
+    niches in the same namespace, so a topic called "investing" sat right
+    next to the "investing" niche with only the prefix telling them
+    apart. Filing topics under their own _topics/ parent keeps the two
+    kinds of analysis visibly separate, the same way channel teardowns
+    live under _channels/. The underscore sorts them away from niches.
+    """
+    d = os.path.join(exports_root, "_topics", safe_name(topic))
+    if section:
+        d = os.path.join(d, section)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def topic_videos_path(topic: str) -> str:
     return os.path.join(topic_dir(topic), "videos.csv")
 

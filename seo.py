@@ -163,6 +163,121 @@ def hashtag_lift(df, top_n=None):
     return rows[: (top_n or SEO_TOP_N)]
 
 
+def generate_tags(df, target_count=15):
+    """
+    Produce a ready-to-paste tag list for a video you are about to make.
+
+    tag_lift ANALYSES which existing tags correlate with breakouts. That
+    is diagnostic — it tells you what is working — but it does not hand
+    you a list to use. This does. It blends three sources so the result
+    is neither all-generic nor all-obscure:
+
+      1. HIGH-LIFT tags — tags that over-index on breakouts (from
+         tag_lift). These are the differentiators, the reason to prefer
+         one tag over another. Weighted most heavily.
+      2. HIGH-COVERAGE tags — tags that simply appear on a large share of
+         videos in this topic. These are table stakes: the algorithm
+         expects them, and omitting them reads as off-topic. Included
+         even at low lift.
+      3. TITLE / NGRAM tags — the most common meaningful phrases in the
+         topic's video titles, which are frequently strong tags that
+         nobody has formally tagged yet.
+
+    Returns {"tags": [...], "reasons": {tag: why}} so the export can
+    explain each choice rather than emitting an unaccountable list.
+
+    IMPORTANT and stated in the output: tags are a weak ranking signal on
+    modern YouTube. This list helps a video be found for what it IS; it
+    is not a growth lever. Title, thumbnail and topic choice dominate.
+    """
+    from collections import Counter
+    from insights import _STOPWORDS, _tokenize
+
+    chosen, reasons = [], {}
+
+    # --- source 1: high-lift tags ---
+    lifts = tag_lift(df, top_n=40)
+    for row in lifts:
+        term = row.get("term") or row.get("tag")
+        if not term or term in chosen:
+            continue
+        if row.get("lift", 0) >= 1.3 and row.get("breakout_count", 0) >= 3:
+            chosen.append(term)
+            reasons[term] = (f"over-indexes on breakouts "
+                             f"({row['lift']:.1f}x lift)")
+        if len(chosen) >= target_count // 2:
+            break
+
+    # --- source 2: high-coverage tags (table stakes) ---
+    tag_counts = Counter()
+    for raw in df.get("tags", pd.Series(dtype=str)).fillna(""):
+        for t in _split_tags(raw):
+            tag_counts[t.strip().lower()] += 1
+    n = max(len(df), 1)
+    for term, c in tag_counts.most_common(30):
+        if term and term not in chosen and c / n >= 0.15:
+            chosen.append(term)
+            reasons[term] = f"used on {c/n:.0%} of videos in this topic"
+        if len(chosen) >= target_count - 3:
+            break
+
+    # --- source 3: common title phrases not yet tagged ---
+    if len(chosen) < target_count and "title" in df.columns:
+        phrase = Counter()
+        for t in df["title"].fillna(""):
+            words = [w for w in _tokenize(str(t))
+                     if w not in _STOPWORDS and len(w) > 3]
+            for i in range(len(words) - 1):
+                phrase[f"{words[i]} {words[i+1]}"] += 1
+        for term, c in phrase.most_common(20):
+            if term not in chosen and c >= 3:
+                chosen.append(term)
+                reasons[term] = f"recurring title phrase ({c} videos)"
+            if len(chosen) >= target_count:
+                break
+
+    return {"tags": chosen[:target_count], "reasons": reasons}
+
+
+def export_tag_list(df, niche_name, out_dir=None) -> str:
+    """Write tags.md — the generated list plus why each tag is there."""
+    result = generate_tags(df)
+    tags, reasons = result["tags"], result["reasons"]
+    out_dir = out_dir or export_dir_for(EXPORTS_DIR, niche_name, "packaging")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "tags.md")
+
+    L = [f"# Suggested tags — {niche_name}", ""]
+    L.append("A ready-to-use tag set for a video on this topic, blended "
+             "from three sources: tags that over-index on breakouts, tags "
+             "that most videos here carry anyway, and common title phrases "
+             "that make strong tags.")
+    L.append("")
+    L.append("> **Tags are a weak ranking signal on modern YouTube.** This "
+             "helps a video be found for what it *is* — it is not a growth "
+             "lever. Title, thumbnail and topic choice matter far more. "
+             "Copy these to be correctly categorised, then stop thinking "
+             "about tags.")
+    L.append("")
+    L.append("## Copy-paste")
+    L.append("")
+    L.append("```")
+    L.append(", ".join(tags))
+    L.append("```")
+    L.append("")
+    L.append("## Why each")
+    L.append("")
+    L.append("| tag | reason |")
+    L.append("|---|---|")
+    for t in tags:
+        L.append(f"| {t} | {reasons.get(t, '')} |")
+    L.append("")
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    return path
+
+
 # ============================================================
 # PER-CLUSTER PROFILES
 # ============================================================
@@ -394,7 +509,8 @@ def top_thumbnails(df, n=12):
             for _, r in top.iterrows() if r.get("thumbnail_url")]
 
 
-def download_thumbnails(df, niche_name, n=12, make_contact_sheet=True):
+def download_thumbnails(df, niche_name, n=12, make_contact_sheet=True,
+                        out_dir_override=None):
     """
     Download the top-N thumbnails and (optionally) tile them into ONE
     contact-sheet image.
@@ -416,7 +532,8 @@ def download_thumbnails(df, niche_name, n=12, make_contact_sheet=True):
     if not items:
         return {"files": [], "contact_sheet": None, "dir": None}
 
-    out_dir = os.path.join(export_dir_for(EXPORTS_DIR, niche_name, "packaging"), "thumbnails")
+    base = out_dir_override or export_dir_for(EXPORTS_DIR, niche_name, "packaging")
+    out_dir = os.path.join(base, "thumbnails")
     os.makedirs(out_dir, exist_ok=True)
     files = []
     for i, it in enumerate(items, 1):
@@ -575,16 +692,20 @@ def _lift_table_md(rows, label, limit=15):
     return "\n".join(out) + "\n"
 
 
-def export_seo_report(df, clusters, niche_name, fetch_thumbnails=True) -> dict:
+def export_seo_report(df, clusters, niche_name, fetch_thumbnails=True,
+                      out_dir_override=None) -> dict:
     """Write the SEO report to exports/ as Markdown + JSON."""
     rep = build_seo_report(df, clusters)
     thumbs_info = {"files": [], "contact_sheet": None, "dir": None}
     if fetch_thumbnails:
         try:
-            thumbs_info = download_thumbnails(df, niche_name)
+            thumbs_info = download_thumbnails(df, niche_name,
+                                              out_dir_override=out_dir_override)
         except Exception as e:
             print(f"  (thumbnail download skipped: {type(e).__name__})")
-    out_dir = export_dir_for(EXPORTS_DIR, niche_name, "packaging")
+    out_dir = out_dir_override or export_dir_for(EXPORTS_DIR, niche_name,
+                                                 "packaging")
+    os.makedirs(out_dir, exist_ok=True)
     stem = os.path.join(out_dir, "seo")
     paths = {"md": stem + ".md", "json": stem + ".json"}
 
