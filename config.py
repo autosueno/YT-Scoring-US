@@ -54,6 +54,50 @@ SEARCH_MAX_PER_QUERY = 500     # hard ceiling per single query/window
 COLLECTION_LOOKBACK_DAYS = 365   # only collect videos from the last ~year
 SEARCH_WINDOW_DAYS = 30          # window size per search slice
 
+# Selectable lookbacks offered at build time. A niche built at 365 days
+# and one built at 45 days answer DIFFERENT QUESTIONS and are not
+# interchangeable:
+#
+#   365d  the market's shape. Evergreen content has had time to prove
+#         itself, baselines are stable, and percentiles mean something.
+#         Correct default, and the right basis for grading topics.
+#    60d  what is moving now. Catches a trend while it is still a trend,
+#         at the cost of a thinner sample and a baseline that shifts
+#         between builds.
+#    30d  breaking only. Very few videos, very noisy percentiles. Useful
+#         for "is this happening right now", useless as a baseline.
+#
+# The stored lookback travels with the dataset so a topic collected over
+# one span is never silently graded against a baseline built over
+# another — that comparison is meaningless and looks fine.
+LOOKBACK_PRESETS = [
+    (30,  "Breaking — what is happening right now"),
+    (45,  "Hot — recent movement, still thin"),
+    (60,  "Current — a reasonable balance"),
+    (90,  "Quarter — trend with some stability"),
+    (180, "Half year — enough history for durability signals"),
+    (365, "Full year — market shape, best for baselines"),
+]
+
+# Target number of time slices, whatever the lookback. Windows exist so
+# collection is spread evenly across the period instead of returning
+# whatever YouTube ranks highest (which skews recent). Momentum then
+# compares a recent slice against a prior one — with only ONE slice
+# there is nothing to compare, so short lookbacks need proportionally
+# shorter slices. At a fixed 30-day slice, a 30-day lookback produced
+# exactly one window and silently broke momentum.
+TARGET_SEARCH_WINDOWS = 8
+MIN_SEARCH_WINDOW_DAYS = 5
+
+
+def window_days_for(lookback_days):
+    """Slice size that yields roughly TARGET_SEARCH_WINDOWS windows."""
+    if not lookback_days:
+        return SEARCH_WINDOW_DAYS
+    w = max(MIN_SEARCH_WINDOW_DAYS,
+            int(round(lookback_days / TARGET_SEARCH_WINDOWS)))
+    return min(w, SEARCH_WINDOW_DAYS)
+
 # Bias search results toward a language (YouTube's relevanceLanguage
 # parameter, ISO 639-1). On a real build, 21 of the top 100 breakouts were
 # non-English despite English seeds. NOTE: this is a BIAS, not a strict
@@ -75,6 +119,18 @@ RELEVANCE_LANGUAGE = "en"
 #     5 seeds, recurse 8      ->  1,845 lookups  ~11 min
 #    11 seeds, recurse 8      ->  4,059 lookups  ~24 min
 SIGNALS_RECURSE_TOP = 8
+
+# Maximum seed terms accepted for ONE autocomplete harvest.
+#
+# Autocomplete costs no quota, so the only limit is wall-clock time —
+# each seed is 41 lookups at full a-z expansion, roughly 15 seconds.
+# Ten seeds is about 2.5 minutes flat, or 25 with recursion, which the
+# menu prices before you commit.
+#
+# Ten also unifies two numbers that were previously inconsistent for no
+# reason: suggested seeds took the top 6 clusters while the
+# clusters-only preset took the top 10.
+SIGNALS_MAX_SEEDS = 10
 
 # ============================================================
 # COLLECTION QUALITY FILTERS
@@ -105,6 +161,32 @@ COLLECT_VIDEO_DURATION = "any"
 #    Post-filter: drop anything shorter than this. 180s is YouTube's own
 #    Shorts ceiling. Set to None to keep everything.
 EXCLUDE_SHORTS_UNDER_SECONDS = 180
+
+# Collect this much MORE than the target, because the quality filters run
+# after enrichment and remove a large slice. Measured across three real
+# builds: 67%, 61% and 50% of collected videos survived — so roughly a
+# third to a half is lost, almost all of it Shorts.
+#
+# The alternative was YouTube's videoDuration parameter, which would stop
+# Shorts arriving at all. It was rejected because it accepts ONE value:
+# "medium" is 4-20 minutes, so it excludes Shorts but also excludes every
+# video over 20 minutes — in finance that means losing the documentaries
+# and deep-dives, which are often the best content. There is no way to
+# say "anything except Shorts". Over-collecting costs more quota but
+# stays blind to nothing.
+COLLECTION_OVERSHOOT = 1.6
+
+# Shorts are excluded from the main dataset but SAVED, not discarded.
+# They have already been paid for, and they answer a question the
+# long-form data cannot: which topics are getting attention in short
+# form. A topic busy in Shorts but thin in long-form is a candidate —
+# people are interested, and nobody has made the full version.
+#
+# The inference is NOT automatic, and the report says so: Shorts views
+# come from the Shorts feed rather than from search, so short-form
+# attention does not prove that anyone would search for a long video on
+# the same subject.
+RETAIN_SHORTS = True
 
 # 3. LANGUAGE. relevanceLanguage is a RANKING HINT, not a filter, and
 #    regionCode only biases viewability — neither excludes foreign-language
@@ -206,7 +288,37 @@ MAX_SEEDS_PER_NICHE = 8
 # data that was free to collect. With a floor, each seed pulls what it can
 # and collection stops when the overall NICHE_DATABASE_SIZE target is met
 # (or the seeds run dry, or quota is exhausted).
-PER_SEED_MIN_RESULTS = 700
+# Videos requested per seed. Raised from 700 to 1,300 because API calls
+# return results in blocks of 50: across 13 monthly windows, 700 asks for
+# 54 per window, which costs TWO calls but uses only 54 of the 100
+# results those calls return. 1,300 fills exactly 100 per window — same
+# quota, nearly double the data. Above 1,300 the cost jumps 50%.
+#
+# The risk of collecting deeper is that results past page 1 are, by
+# YouTube own ranking, worse matches. That is no longer a guess:
+# search_depth_diagnostic() measures it on every build and warns when
+# deep results are materially less on-topic, or when windows ran dry.
+PER_SEED_MIN_RESULTS = 1300
+
+# Hard cap on how many result PAGES to take per time window, or None for
+# no cap. One page is 50 results — YouTube's own best matches for that
+# window. Page 2 is its next-best, and so on.
+#
+# Set this to 1 when you only want first-page quality. Collection then
+# takes exactly 650 videos per seed (50 x 13 windows) and never digs
+# past what YouTube considers the strongest matches.
+#
+# Worth knowing before you set it: paging DOES already stop when YouTube
+# runs out — a window that returns fewer than requested has been
+# exhausted, and nothing was padded. This cap is for the different case
+# where results ARE available but you judge them not worth having.
+#
+# The trade is real in both directions. Page 2 of a broad niche is still
+# perfectly good content, and refusing it halves the dataset for no
+# gain. Page 2 of a thin niche is filler. search_depth_diagnostic()
+# measures which case you are in on every build, so set this from
+# evidence rather than in advance.
+SEARCH_MAX_PAGES_PER_WINDOW = None
 
 # ============================================================
 # STATISTICS
@@ -465,6 +577,37 @@ BREAKOUT_TIER_MIN_VIDEOS = 8
 # down until enough videos qualify and reports which floor it used, so
 # a relaxed threshold is visible rather than silent.
 BREAKOUT_MIN_VIEWS_LADDER = [10_000, 5_000, 2_000, 0]
+
+# ============================================================
+# BREAKOUT ERAS
+# ============================================================
+# Breakout ranking is age-biased and always has been. views_per_hour is
+# 65% of the score and it divides by age, so a 3-day-old video divides by
+# 72 hours while a 300-day-old one divides by 7,200. Measured on real
+# data: videos under 30 days old had a median breakout score of 89.1 and
+# took 21 of the top 50; videos over 180 days scored 26.3 and took 2. The
+# single biggest video in the whole dataset — 789,008 views — did not
+# appear anywhere, because it was old.
+#
+# So the list was really "recent videos" wearing a "breakouts" label.
+#
+# The fix is DISJOINT eras, each ranked against its own contemporaries.
+# Nested windows (last 90 / last 180 / last 365) do NOT work: every one
+# of them contains the recent videos, so all three produce an identical
+# top ten. Verified.
+#
+# Percentiles are computed WITHIN each era rather than against the whole
+# niche, which is the entire point — a video should compete with others
+# of its own age, not with ones that had a ten-fold arithmetic advantage.
+BREAKOUT_ERAS = [
+    (0,   90,  "0-90d",     "Winning now"),
+    (90,  180, "90-180d",   "Won three to six months ago"),
+    (180, 365, "180-365d",  "Won six to twelve months ago"),
+]
+
+# An era below this many videos is skipped rather than ranked — a "top
+# 20" drawn from 25 videos is just the list, sorted.
+ERA_MIN_VIDEOS = 25
 BREAKOUT_TIERS = [
     (0,       2_000,   "brand_new",       "Brand-New Breakouts (<2k subs)"),
     (2_000,   100_000, "small",           "Small-Channel Breakouts (2k–100k subs)"),
@@ -650,10 +793,26 @@ MOMENTUM_LOG_SCALE = 100.0
 # frequency is the most direct "heating up right now" read; evergreen
 # persistence measures durability, which matters but is closer to a
 # quality-of-market trait than to momentum itself.
+# Momentum answers ONE question: is this market heating up or cooling
+# down? Every component must speak to that.
+#
+# evergreen_persistence was removed at weight 0.20. It measures whether
+# OLD videos still pull views, which is durability, not direction — and
+# on real data it actively penalised the thing momentum exists to find.
+# A topic that just took off necessarily has weak old videos, because
+# they were published before anyone cared. Measured on a real
+# memory-stocks topic: momentum +68.2 without it, +34.6 with it. It
+# halved the score of a topic that was genuinely exploding, and because
+# _signed_log clamps at -100 it contributed a FIXED -20 to any topic
+# that saturated it — a constant, not a signal.
+#
+# The metric itself is sound and still computed; it is reported as a
+# content-durability diagnostic instead of being folded into a
+# directional score. Weights renormalise over whatever is present, so
+# these two now split 0.625 / 0.375.
 MOMENTUM_COMPONENT_WEIGHTS = {
     "demand_vs_supply_growth":   0.50,
     "recent_breakout_frequency": 0.30,
-    "evergreen_persistence":     0.20,
 }
 
 # --- Content Supply (niche-level, scored directionally: topic vs niche) ---

@@ -54,15 +54,15 @@ exports/_channels/<name>/  channel teardowns
 history/<niche>/<date>/    archived previous builds
 ```
 
-## Modules (22)
+## Modules (23)
 
 ```
   angles              api_keys            baseline            calendars
   channel             collector           config              dashboard
   discover            grader              insights            main
   metrics             paths               quota_tracker       report
-  seo                 signals             statistics          thumbnail_sheet
-  timing              trends
+  seo                 shorts              signals             statistics
+  thumbnail_sheet     timing              trends
 ```
 
 ## Known limits

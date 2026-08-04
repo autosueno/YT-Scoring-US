@@ -46,14 +46,16 @@ from config import (
 # PUBLIC API
 # ============================================================
 
-def grade_topic(df, baseline: Baseline, topic: str) -> dict:
+def grade_topic(df, baseline: Baseline, topic: str,
+                lookback_days=None) -> dict:
     """Evaluate a topic as a market against the niche baseline."""
     if df.empty:
         return _empty_result(topic, "topic")
-    return _grade(df, baseline, topic, "topic")
+    return _grade(df, baseline, topic, "topic", lookback_days)
 
 
-def grade_niche(df, baseline: Baseline, niche: str) -> dict:
+def grade_niche(df, baseline: Baseline, niche: str,
+                lookback_days=None) -> dict:
     """
     Evaluate a niche against a baseline.
 
@@ -83,7 +85,7 @@ def grade_niche(df, baseline: Baseline, niche: str) -> dict:
     """
     if df.empty:
         return _empty_result(niche, "niche")
-    result = _grade(df, baseline, niche, "niche")
+    result = _grade(df, baseline, niche, "niche", lookback_days)
     result["self_comparison"] = (baseline.niche_name == niche)
     return result
 
@@ -92,10 +94,10 @@ def grade_niche(df, baseline: Baseline, niche: str) -> dict:
 # CORE ENGINE
 # ============================================================
 
-def _grade(df, baseline, name, kind):
-    demand = _demand_pillar(df, baseline)
+def _grade(df, baseline, name, kind, lookback_days=None):
+    demand = _demand_pillar(df, baseline, lookback_days)
     supply = _pillar(_supply_scores(df, baseline))
-    momentum = _momentum_pillar(df, baseline)
+    momentum = _momentum_pillar(df, baseline, lookback_days)
 
     opportunity = _derive_opportunity(demand["score"], supply["score"], momentum)
 
@@ -113,7 +115,7 @@ def _grade(df, baseline, name, kind):
         },
         "opportunity":  opportunity,
         "indicators":   _opportunity_indicators(df),
-        "content_diagnostics": _content_diagnostics(df),
+        "content_diagnostics": _content_diagnostics(df, lookback_days),
         "highlights":   [],
     }
     if kind == "topic":
@@ -137,7 +139,7 @@ def _pillar(metric_scores: dict) -> dict:
 # PILLAR: INFERRED DEMAND (per-video percentile rank + evergreen)
 # ============================================================
 
-def _demand_scores(df, baseline) -> dict:
+def _demand_scores(df, baseline, lookback_days=None) -> dict:
     """
     Score demand by GROUP so correlated metrics can't vote twice.
 
@@ -159,7 +161,7 @@ def _demand_scores(df, baseline) -> dict:
             group_scores[group] = sum(member_scores) / len(member_scores)
 
     # Longevity: topic evergreen vs niche evergreen (higher = more durable).
-    topic_mom = insights.momentum_summary(df)
+    topic_mom = insights.momentum_summary(df, lookback_days)
     niche_mom = baseline.momentum()
     t_ev, n_ev = topic_mom.get("evergreen_score"), niche_mom.get("evergreen_score")
     ev = _directional_score(t_ev, n_ev, "higher")
@@ -169,9 +171,9 @@ def _demand_scores(df, baseline) -> dict:
     return {"metrics": scores, "groups": group_scores, "evergreen": ev}
 
 
-def _demand_pillar(df, baseline) -> dict:
+def _demand_pillar(df, baseline, lookback_days=None) -> dict:
     """Combine demand group scores by weight into the pillar score."""
-    parts = _demand_scores(df, baseline)
+    parts = _demand_scores(df, baseline, lookback_days)
     groups, metrics_seen, ev = parts["groups"], parts["metrics"], parts["evergreen"]
 
     if groups:
@@ -246,7 +248,7 @@ def _supply_scores(df, baseline) -> dict:
 # PILLAR: MOMENTUM (demand growth vs supply growth)
 # ============================================================
 
-def _momentum_pillar(df, baseline) -> dict:
+def _momentum_pillar(df, baseline, lookback_days=None) -> dict:
     """
     Momentum pillar with an honesty guard: if the recent/prior windows don't
     hold enough videos (common when a sample is smeared across years), the
@@ -254,7 +256,7 @@ def _momentum_pillar(df, baseline) -> dict:
     the pillar ABSTAINS instead of emitting a fabricated score. An abstained
     pillar is excluded from the opportunity derivation entirely.
     """
-    mom = insights.momentum_summary(df)
+    mom = insights.momentum_summary(df, lookback_days)
     if not mom.get("sufficient_data", False):
         recent_n = mom.get("recent_window_videos", 0)
         prior_n = mom.get("prior_window_videos", 0)
@@ -266,7 +268,7 @@ def _momentum_pillar(df, baseline) -> dict:
                           f"(recent window: {recent_n}, prior: {prior_n} videos)"),
             "metrics":   {},
         }
-    signed_scores = _momentum_scores(df, baseline)
+    signed_scores = _momentum_scores(df, baseline, lookback_days)
     if not signed_scores:
         return {"score": 50.0, "grade": "C", "abstained": False,
                 "signed_change": 0.0, "metrics": {}}
@@ -323,7 +325,7 @@ def _signed_log(observed, reference):
     return max(-100.0, min(100.0, MOMENTUM_LOG_SCALE * math.log10(o / r)))
 
 
-def _momentum_scores(df, baseline) -> dict:
+def _momentum_scores(df, baseline, lookback_days=None) -> dict:
     """
     Momentum components, each on the SIGNED -100..+100 log scale where
     0 = breakeven. The signed scale IS the pipeline here; the 0-100 view
@@ -339,7 +341,7 @@ def _momentum_scores(df, baseline) -> dict:
       evergreen_persistence     old videos' views/hour vs new videos'
                                 (reference 1.0 = no decay)
     """
-    mom = insights.momentum_summary(df)
+    mom = insights.momentum_summary(df, lookback_days)
     scores = {}
 
     dg, sg = mom.get("demand_growth"), mom.get("supply_growth")
@@ -362,13 +364,108 @@ def _momentum_scores(df, baseline) -> dict:
         # real acceleration, but there is no ratio to take. Stay modest.
         scores["recent_breakout_frequency"] = 20.0 if rbf > 0 else 0.0
 
-    ev = mom.get("evergreen_score")
-    if ev is not None:
-        s = _signed_log(ev, 1.0)     # 1.0 = old videos hold up as well as new
-        if s is not None:
-            scores["evergreen_persistence"] = s
+    # evergreen_persistence is deliberately NOT scored into momentum —
+    # see MOMENTUM_COMPONENT_WEIGHTS. It measures durability, not
+    # direction, and penalised exactly the topics momentum should
+    # reward. It is surfaced as a diagnostic instead; see
+    # evergreen_diagnostic().
 
     return scores
+
+
+def lifecycle_diagnostic(df, mom=None):
+    """
+    Why old videos underperform — decay, or a topic that arrived late?
+
+    The evergreen ratio alone cannot answer this, and the two readings
+    have OPPOSITE implications for whether to make the video:
+
+        content ages fast   -> yours will fade too. Plan for a spike.
+        topic arrived late  -> you are early to a wave. Plan a series.
+
+    The discriminator is TOTAL views, not views per hour. Views per hour
+    divides by age, so any old video looks slow. Total views does not
+    lie about it:
+
+        old videos with HIGH totals -> they earned, then faded. Decay.
+        old videos with LOW totals  -> they never earned at all. The
+                                       audience was not there yet.
+
+    Measured on a real memory-stocks topic: videos 180-270 days old had
+    a median of 675 total views against 18,568 for videos under 90 days
+    — a 27x gap in TOTAL, not rate. Those videos did not decay. Nobody
+    ever watched them, because nobody cared about memory stocks then.
+    """
+    if df is None or df.empty or "view_count" not in df.columns:
+        return None
+    days = insights._days_since(df)
+    old_mask = days > 180
+    new_mask = days <= 90
+    if old_mask.sum() < 8 or new_mask.sum() < 8:
+        return {"verdict": "unknown",
+                "reading": ("not enough spread in video ages to tell — this "
+                            "needs a 365-day collection window")}
+
+    old_total = float(df.loc[old_mask, "view_count"].median())
+    new_total = float(df.loc[new_mask, "view_count"].median())
+    ratio = (old_total / new_total) if new_total else None
+    ev = (mom or {}).get("evergreen_score")
+
+    if ratio is None:
+        return None
+    if ratio >= 1.2:
+        verdict = "evergreen"
+        reading = ("old videos have MORE total views than new ones — content "
+                   "here keeps earning. A video made now should still be "
+                   "working in a year, so a back catalogue compounds.")
+    elif ratio >= 0.5:
+        verdict = "decaying"
+        reading = ("old videos earned well and then faded — content has a "
+                   "shelf life of months, not years. Expect a spike then a "
+                   "drop, and plan to keep publishing rather than relying on "
+                   "a back catalogue.")
+    else:
+        verdict = "emerging"
+        reading = ("old videos never earned much even when they were new — "
+                   "this audience arrived recently rather than the content "
+                   "ageing badly. You are early to a wave, which is the good "
+                   "version of this signal, but it also means there is no "
+                   "proof yet that the interest lasts.")
+    return {
+        "verdict": verdict,
+        "old_median_views": int(old_total),
+        "new_median_views": int(new_total),
+        "old_vs_new_total": round(ratio, 3),
+        "evergreen_ratio": round(float(ev), 4) if ev is not None else None,
+        "reading": reading,
+    }
+
+
+def evergreen_diagnostic(mom):
+    """
+    Content durability, reported rather than scored.
+
+    Old videos' views/hour against new videos'. 1.0 means age makes no
+    difference; below 1.0 means content has a shelf life. This is real
+    and useful — for a library-building channel it may matter more than
+    momentum does — but it answers "will this still earn in a year",
+    not "is this heating up", so folding it into a directional score
+    made both harder to read.
+    """
+    ev = mom.get("evergreen_score")
+    if ev is None:
+        return None
+    signed = _signed_log(ev, 1.0)
+    if ev >= 0.8:
+        reading = "durable — old videos hold up about as well as new ones"
+    elif ev >= 0.4:
+        reading = "moderate decay — older content earns roughly half"
+    elif ev >= 0.1:
+        reading = "short shelf life — content fades within months"
+    else:
+        reading = ("very front-loaded — either content dates fast, or the "
+                   "topic's audience arrived recently")
+    return {"ratio": round(float(ev), 4), "signed": signed, "reading": reading}
 
 
 # ============================================================
@@ -452,7 +549,7 @@ def _opportunity_indicators(df) -> dict:
     return {k: ind.get(k) for k in OPPORTUNITY_INDICATOR_KEYS if ind.get(k) is not None}
 
 
-def _content_diagnostics(df) -> dict:
+def _content_diagnostics(df, lookback_days=None) -> dict:
     """
     Content signals are reported as DIAGNOSTICS, not scored — per the market
     model, content packaging is not one of the four market pillars. Kept
@@ -461,7 +558,23 @@ def _content_diagnostics(df) -> dict:
     prof = insights.title_pattern_summary(df)
     keep = ["pct_has_tutorial", "pct_has_comparison", "pct_has_prediction",
             "pct_has_question", "avg_title_sentiment"]
-    return {k: round(prof[k], 1) for k in keep if prof.get(k) is not None}
+    out = {k: round(prof[k], 1) for k in keep if prof.get(k) is not None}
+
+    # Content durability lands here rather than in momentum. For a
+    # library-building channel this may matter more than momentum does,
+    # but it answers a different question and belongs beside the other
+    # unscored context.
+    mom = insights.momentum_summary(df, lookback_days)
+    life = lifecycle_diagnostic(df, mom)
+    if life:
+        out["lifecycle"] = life.get("verdict")
+        if life.get("old_vs_new_total") is not None:
+            out["old_vs_new_total_views"] = life["old_vs_new_total"]
+        out["lifecycle_reading"] = life["reading"]
+    ev = evergreen_diagnostic(mom)
+    if ev:
+        out["evergreen_ratio"] = ev["ratio"]
+    return out
 
 
 # ============================================================
@@ -561,8 +674,14 @@ def _highlights(df, baseline, result) -> list:
     # Pillar summary line.
     p = result["pillars"]
     mom_p = p["momentum"]
-    mom_txt = "not scored" if (mom_p.get("abstained") or mom_p.get("score") is None) \
-        else f"{mom_p['score']:.0f} ({mom_p['grade']})"
+    # Momentum is reported SIGNED here, like everywhere else. Printing its
+    # 0-100 form in a list beside demand and supply invites exactly the
+    # comparison the signed axis was introduced to prevent — and it
+    # contradicted the "Momentum: ... (+30 vs. breakeven)" line a few
+    # bullets above, same value shown two ways in one report.
+    mom_txt = "not scored" if (mom_p.get("abstained")
+                               or mom_p.get("signed_change") is None) \
+        else f"{mom_p['signed_change']:+.0f} signed ({mom_p['grade']})"
     hi.append(
         f"Pillars — demand {p['demand']['score']:.0f} ({p['demand']['grade']}), "
         f"supply {p['supply']['score']:.0f} ({p['supply']['grade']}), "

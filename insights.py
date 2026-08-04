@@ -26,7 +26,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from config import MOMENTUM_MIN_WINDOW_VIDEOS, MOMENTUM_TAIL_WEIGHT
+from config import (MOMENTUM_MIN_WINDOW_VIDEOS, MOMENTUM_TAIL_WEIGHT,
+                    COLLECTION_LOOKBACK_DAYS)
 
 
 # Minimal hand-rolled stopword list — enough to keep title word/n-gram
@@ -303,6 +304,28 @@ _FRESH_DAYS = 90        # "fresh" = published within this many days
 _EVERGREEN_OLD_DAYS = 180
 
 
+def momentum_windows(lookback_days=None):
+    """
+    Recent and prior window sizes, scaled to the collection period.
+
+    These were fixed at 45 and 90 days, which was correct while every
+    build collected a full year. Once the collection window became
+    selectable they broke silently: a 45-day build has NOTHING in the
+    45-90 day prior window, so demand growth had no denominator, and a
+    60-day build filled only 15 days of a 45-day window — a ratio
+    computed from a third of the intended sample, reported with the same
+    confidence as a full one.
+
+    Above 90 days the original constants are kept, because momentum
+    should describe RECENT change rather than year-long drift. Below
+    that, the period is split in half: recent vs prior, both real.
+    """
+    lb = lookback_days or COLLECTION_LOOKBACK_DAYS
+    if not lb or lb >= _PRIOR_DAYS:
+        return _RECENT_DAYS, _PRIOR_DAYS
+    return max(3, lb // 2), lb
+
+
 def _days_since(df):
     """Series of whole days since each video's publish time (>= 0)."""
     now = datetime.now(timezone.utc)
@@ -386,7 +409,7 @@ def supply_summary(df):
     }
 
 
-def momentum_summary(df):
+def momentum_summary(df, lookback_days=None):
     """
     MOMENTUM — is the market strengthening? Compares a RECENT window of
     uploads against the PRIOR window (within this single collection) for
@@ -402,9 +425,12 @@ def momentum_summary(df):
     if df.empty or "published_at" not in df.columns:
         return {}
 
+    # Windows scale with the collection period — a 45-day build has
+    # nothing in a fixed 45-90 day prior window.
+    recent_days, prior_days = momentum_windows(lookback_days)
     days = _days_since(df)
-    recent_mask = days <= _RECENT_DAYS
-    prior_mask = (days > _RECENT_DAYS) & (days <= _PRIOR_DAYS)
+    recent_mask = days <= recent_days
+    prior_mask = (days > recent_days) & (days <= prior_days)
     recent_n = int(recent_mask.sum())
     prior_n = int(prior_mask.sum())
 
@@ -433,15 +459,25 @@ def momentum_summary(df):
             demand_growth = sum(w * g for w, g in growths) / tw
 
     # Supply growth via upload counts (normalized per-day per window length).
-    recent_rate = int(recent_mask.sum()) / _RECENT_DAYS
-    prior_rate = int(prior_mask.sum()) / (_PRIOR_DAYS - _RECENT_DAYS)
+    recent_rate = int(recent_mask.sum()) / recent_days
+    prior_rate = int(prior_mask.sum()) / (prior_days - recent_days)
     supply_growth = _safe_ratio(recent_rate, prior_rate)
 
     # Evergreen: do old videos still earn views/hour comparable to new ones?
     evergreen_score = None
     if "views_per_hour" in df.columns:
-        old = df.loc[days > _EVERGREEN_OLD_DAYS, "views_per_hour"].median()
-        new = df.loc[days <= _FRESH_DAYS, "views_per_hour"].median()
+        # Evergreen needs genuinely OLD videos. On a short collection
+        # window none exist, so it reports nothing rather than comparing
+        # two slices of the same recent period and calling it durability.
+        old_cut = _EVERGREEN_OLD_DAYS
+        fresh_cut = _FRESH_DAYS
+        if lookback_days and lookback_days < _EVERGREEN_OLD_DAYS * 1.5:
+            old_cut = fresh_cut = None
+        if old_cut is not None:
+            old = df.loc[days > old_cut, "views_per_hour"].median()
+            new = df.loc[days <= fresh_cut, "views_per_hour"].median()
+        else:
+            old = new = None
         if pd.notna(old) and pd.notna(new) and new > 0:
             evergreen_score = float(min(old / new, 2.0))  # cap at 2x
     decay_rate = (1.0 - evergreen_score) if evergreen_score is not None else None

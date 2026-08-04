@@ -76,6 +76,8 @@ from config import (
     KEY_PER_SEED, RESERVED_KEYS_FOR_TOPICS,
     NICHE_DATABASE_SIZE, TOPIC_SAMPLE_SIZE,
     SEARCH_MAX_PER_QUERY, SEARCH_WINDOW_DAYS, COLLECTION_LOOKBACK_DAYS,
+    COLLECTION_OVERSHOOT, RETAIN_SHORTS, SEARCH_MAX_PAGES_PER_WINDOW,
+    window_days_for,
     RELEVANCE_LANGUAGE, REGION_CODES, REGION_STRATEGY,
     MAX_SEEDS_PER_NICHE, PER_SEED_MIN_RESULTS,
     DATASETS_DIR, TOPICS_DIR, HISTORY_DIR, QUOTA_HISTORY_PATH,
@@ -98,6 +100,7 @@ from paths import (
     safe_name as _safe_name,
     niche_dir as _niche_dir,
     videos_path as _videos_path,
+    shorts_path as _shorts_path,
     statistics_path as _statistics_path,
     metadata_path as _metadata_path,
     insights_path as _insights_path,
@@ -119,6 +122,7 @@ def _ensure_folders():
 # ============================================================
 
 def _search_video_ids(keys, query, max_results, order, tracker,
+                      rank_map=None, exhausted=None,
                       published_after=None, published_before=None,
                       region_code=None):
     """
@@ -130,7 +134,11 @@ def _search_video_ids(keys, query, max_results, order, tracker,
     video_ids = []
     next_page = None
 
+    pages_taken = 0
     while len(video_ids) < max_results:
+        if (SEARCH_MAX_PAGES_PER_WINDOW
+                and pages_taken >= SEARCH_MAX_PAGES_PER_WINDOW):
+            break
         page_size = min(SEARCH_RESULTS_PER_CALL, max_results - len(video_ids))
         params = dict(
             q=query,
@@ -158,9 +166,24 @@ def _search_video_ids(keys, query, max_results, order, tracker,
 
         tracker.charge("search.list")
         response = keys.execute(lambda yt: yt.search().list(**params))
-        for item in response.get("items", []):
-            video_ids.append(item["id"]["videoId"])
+        items = response.get("items", [])
+        for item in items:
+            vid = item["id"]["videoId"]
+            if rank_map is not None and vid not in rank_map:
+                # Position in YouTube's own relevance order. Rank 1-50 is
+                # the first page; anything above 50 came from digging
+                # deeper, and is by YouTube's own judgement a worse match.
+                rank_map[vid] = len(video_ids) + 1
+            video_ids.append(vid)
 
+        # YouTube returned fewer than we asked for: this query/window has
+        # been EXHAUSTED. That is the concrete version of "scraped past
+        # the bottom of the barrel" — there is nothing further to get,
+        # and asking for more depth here cannot help.
+        if exhausted is not None and len(items) < page_size:
+            exhausted.append({"requested": page_size, "returned": len(items)})
+
+        pages_taken += 1
         next_page = response.get("nextPageToken")
         if not next_page:
             break
@@ -174,7 +197,8 @@ def _iso(dt):
 
 
 def _search_windowed(keys, query, max_results, order, tracker,
-                     window_days=None, lookback_days=None, region_code=None):
+                     window_days=None, lookback_days=None, region_code=None,
+                     rank_map=None, exhausted=None):
     """
     Reach a large target by slicing the search into consecutive DATE WINDOWS.
 
@@ -187,8 +211,11 @@ def _search_windowed(keys, query, max_results, order, tracker,
     quota runs out mid-way (AllKeysExhausted), we return whatever has been
     gathered so far rather than raising — collection degrades, never dies.
     """
-    window_days = window_days or SEARCH_WINDOW_DAYS
     lookback_days = lookback_days if lookback_days is not None else COLLECTION_LOOKBACK_DAYS
+    # Slice size scales with the period. A fixed 30-day slice over a
+    # 30-day lookback yields ONE window, which silently breaks momentum
+    # (it compares a recent window against a prior one).
+    window_days = window_days or window_days_for(lookback_days)
 
     # No recency bound requested → original single-query behavior.
     if not lookback_days:
@@ -233,6 +260,7 @@ def _search_windowed(keys, query, max_results, order, tracker,
         try:
             ids = _search_video_ids(
                 keys, query, min(want, SEARCH_MAX_PER_QUERY), order, tracker,
+                rank_map=rank_map, exhausted=exhausted,
                 published_after=_iso(w_start),
                 published_before=_iso(w_end),
                 region_code=region_code,
@@ -429,22 +457,42 @@ def estimate_build_units(query, max_results=None):
     """
     Estimate search-quota cost BEFORE spending anything, so a build that
     cannot fit is caught up front instead of dying half-way.
+
+    Returns a LOWER BOUND, not a prediction. Real cost runs higher
+    because search.list frequently returns fewer than 50 usable ids per
+    page (filtered, deleted or region-blocked videos still consume a
+    page), so more pages are needed than the arithmetic implies.
+
+    THE BUG THIS REPLACED: the old formula computed
+        min(per_seed, SEARCH_MAX_PER_QUERY) / windows / RESULTS_PER_CALL
+    which caps at 500 BEFORE dividing by windows. But SEARCH_MAX_PER_QUERY
+    is a per-QUERY/per-WINDOW ceiling, not a per-seed one. Applying it to
+    the seed total collapsed a 5-calls-per-window build to 1, and a real
+    3,000-video single-seed run estimated at 1,420 units actually spent
+    11,300 — enough to push a key past its daily limit with no warning.
     """
     import math
     max_results = max_results or NICHE_DATABASE_SIZE
     seeds = _normalize_seeds(query) or ["?"]
     per_seed = max(PER_SEED_MIN_RESULTS, math.ceil(max_results / len(seeds)))
+    # Match _collect_raw: every seed gets a full share, so the real
+    # target is the larger of the nominal size and seeds x per_seed.
+    effective_target = max(max_results, per_seed * len(seeds))
     windows = max(1, math.ceil((COLLECTION_LOOKBACK_DAYS or SEARCH_WINDOW_DAYS)
                                / SEARCH_WINDOW_DAYS))
-    calls_per_window = max(1, math.ceil(min(per_seed, SEARCH_MAX_PER_QUERY)
-                                        / windows / SEARCH_RESULTS_PER_CALL))
+    # Divide across windows FIRST, then apply the per-window ceiling.
+    per_window = math.ceil(per_seed / windows)
+    per_window = min(per_window, SEARCH_MAX_PER_QUERY)
+    calls_per_window = max(1, math.ceil(per_window / SEARCH_RESULTS_PER_CALL))
     regions = len(REGION_CODES) if REGION_STRATEGY == "all" else 1
     search_calls = len(seeds) * windows * calls_per_window * regions
-    video_calls = math.ceil(max_results / 50) * 2   # videos.list + channels.list
+    video_calls = math.ceil(effective_target / 50) * 2  # videos + channels
     return {
         "seeds": len(seeds),
         "search_calls": search_calls,
         "units": search_calls * 100 + video_calls,
+        "target_videos": effective_target,
+        "is_lower_bound": True,
     }
 
 
@@ -467,7 +515,7 @@ def _print_quota_forecast(api_key, query, max_results):
         print(line)
 
 
-def apply_quality_filters(df, verbose=True):
+def apply_quality_filters(df, verbose=True, return_shorts=False):
     """
     Drop Shorts and non-English videos AFTER enrichment, then report what
     went. Runs post-fetch because both signals need data the search
@@ -480,9 +528,10 @@ def apply_quality_filters(df, verbose=True):
     percentile subtly wrong with no visible cause.
     """
     if df is None or df.empty:
-        return df
+        return (df, pd.DataFrame()) if return_shorts else df
     before = len(df)
     notes = []
+    shorts = pd.DataFrame()
 
     if EXCLUDE_SHORTS_UNDER_SECONDS and "duration_seconds" in df.columns:
         secs = pd.to_numeric(df["duration_seconds"], errors="coerce")
@@ -492,6 +541,10 @@ def apply_quality_filters(df, verbose=True):
         removed = int((~mask).sum())
         if removed:
             notes.append(f"{removed:,} Shorts (<{EXCLUDE_SHORTS_UNDER_SECONDS}s)")
+        # Kept, not discarded — already paid for, and they answer a
+        # question long-form data cannot. See RETAIN_SHORTS.
+        if RETAIN_SHORTS and removed:
+            shorts = df[~mask].reset_index(drop=True)
         df = df[mask]
 
     if REQUIRE_ENGLISH and "likely_english" in df.columns:
@@ -500,14 +553,101 @@ def apply_quality_filters(df, verbose=True):
         if removed:
             notes.append(f"{removed:,} non-English")
         df = df[mask]
+        # Apply the same language rule to the retained Shorts, so the
+        # Shorts report is not quietly a different population.
+        if len(shorts) and "likely_english" in shorts.columns:
+            shorts = shorts[shorts["likely_english"].fillna(True)].reset_index(drop=True)
 
     if verbose and notes:
         print(f"  Quality filters removed {before - len(df):,} of {before:,} "
               f"({', '.join(notes)}) → {len(df):,} usable")
-    return df.reset_index(drop=True)
+        if len(shorts):
+            print(f"  {len(shorts):,} Shorts kept for separate analysis "
+                  f"(not in the main dataset)")
+    kept = df.reset_index(drop=True)
+    return (kept, shorts) if return_shorts else kept
 
 
-def _collect_raw(api_key, query, max_results, order, tracker):
+def search_depth_diagnostic(df, rank_map, exhausted, verbose=True):
+    """
+    Did collecting deeper actually get worse videos?
+
+    Two independent signals, both measured rather than assumed:
+
+    EXHAUSTION — how often a window returned fewer results than were
+    requested. YouTube ran out. Nothing deeper existed, so extra depth
+    bought nothing there. This is the hard evidence for "narrow niche,
+    scraped past the bottom".
+
+    TOPICAL DRIFT — how much less the deep results resemble the seed than
+    the shallow ones. Compares the share of first-page videos (rank <=50)
+    whose titles share a significant word with the seed against the same
+    share for later pages. A broad niche should show little difference;
+    a niche with only sixty genuinely relevant videos a month should show
+    a lot.
+
+    Returns None when there is nothing to compare.
+    """
+    if df is None or df.empty or not rank_map:
+        return None
+    ranks = df["video_id"].map(rank_map) if "video_id" in df.columns else None
+    if ranks is None or ranks.notna().sum() < 40:
+        return None
+
+    deep = ranks > SEARCH_RESULTS_PER_CALL
+    shallow = ranks <= SEARCH_RESULTS_PER_CALL
+    if shallow.sum() < 20 or deep.sum() < 20:
+        return None
+
+    out = {
+        "shallow_videos": int(shallow.sum()),
+        "deep_videos": int(deep.sum()),
+        "windows_exhausted": len(exhausted or []),
+    }
+
+    # Topical drift, measured against the seed vocabulary.
+    if "title" in df.columns:
+        from insights import _STOPWORDS, _tokenize
+        seed_words = set()
+        for s in (df.attrs.get("seeds") or []):
+            seed_words |= {w for w in _tokenize(str(s))
+                           if w not in _STOPWORDS and len(w) > 2}
+        if seed_words:
+            def _hit_rate(mask):
+                titles = df.loc[mask, "title"].fillna("").astype(str)
+                if not len(titles):
+                    return None
+                hits = titles.apply(
+                    lambda t: bool(seed_words & set(_tokenize(t))))
+                return float(hits.mean())
+            s_rate, d_rate = _hit_rate(shallow), _hit_rate(deep)
+            if s_rate and d_rate is not None:
+                out["shallow_on_topic"] = round(s_rate, 3)
+                out["deep_on_topic"] = round(d_rate, 3)
+                out["drift"] = round(1 - (d_rate / s_rate), 3) if s_rate else None
+
+    if verbose:
+        msg = (f"  Search depth: {out['shallow_videos']:,} from page 1, "
+               f"{out['deep_videos']:,} from deeper pages")
+        if out["windows_exhausted"]:
+            msg += f"; {out['windows_exhausted']} window(s) ran dry"
+        print(msg)
+        if out.get("drift") is not None:
+            d = out["drift"]
+            if d >= 0.25:
+                print(f"  ⚠️  Deep results are {d:.0%} less on-topic than page "
+                      f"1 ({out['deep_on_topic']:.0%} vs "
+                      f"{out['shallow_on_topic']:.0%} matching the seed).")
+                print("      This niche is thinner than the collection depth "
+                      "— lower PER_SEED_MIN_RESULTS or use narrower seeds.")
+            else:
+                print(f"  Deep results are only {d:.0%} less on-topic — "
+                      f"depth is not hurting quality here.")
+    return out
+
+
+def _collect_raw(api_key, query, max_results, order, tracker,
+                 lookback_days=None):
     """
     Multi-seed, quota-resilient collection.
 
@@ -537,7 +677,30 @@ def _collect_raw(api_key, query, max_results, order, tracker):
     # the overall target is met, the seeds run dry, or quota is exhausted.
     per_seed = max(PER_SEED_MIN_RESULTS, -(-max_results // len(seeds)))
 
+    # Size the budget to fit every seed's allocation. PER_SEED_MIN_RESULTS
+    # is a floor for a REASON — below it a seed contributes too few videos
+    # to say anything about its corner of the niche — so when the floor
+    # multiplied by the seed count exceeds the nominal target, the target
+    # is what gives way, not the last seed's share.
+    effective_target = max(max_results, per_seed * len(seeds))
+    if effective_target > max_results:
+        print(f"  {len(seeds)} seeds x {per_seed} minimum = "
+              f"{effective_target:,} videos, above the {max_results:,} "
+              f"target — collecting {effective_target:,} so every seed "
+              f"gets a full share.")
+
     seen = set()
+    # Per-seed contribution, reported at the end. Dedup happens AFTER a
+    # seed has already paid full quota for its search, so a seed that
+    # overlaps heavily with earlier ones costs the same as a fresh one
+    # and returns a fraction of the videos. That is invisible unless it
+    # is stated plainly — it looks identical to "this topic is small".
+    seed_yield = []
+    # Where each video sat in YouTube's relevance order, and whether any
+    # window ran dry. Together these answer "did we scrape past the
+    # bottom of the barrel?" with evidence instead of a guess.
+    rank_map = {}
+    exhausted = []
     video_rows = []
     channel_ids = set()
     collected = 0
@@ -547,9 +710,9 @@ def _collect_raw(api_key, query, max_results, order, tracker):
             print(f"  Skipping remaining seeds (quota exhausted): "
                   f"{seeds[seed_index:]}")
             break
-        if collected >= max_results:
-            print(f"  Target of {max_results} reached — skipping remaining "
-                  f"seeds: {seeds[seed_index:]}")
+        if collected >= effective_target:
+            print(f"  Target of {effective_target} reached — skipping "
+                  f"remaining seeds: {seeds[seed_index:]}")
             break
 
         # Give this seed its own key so a greedy earlier seed cannot have
@@ -567,22 +730,38 @@ def _collect_raw(api_key, query, max_results, order, tracker):
             keys.use_key_for_seed(key_order[seed_index % len(key_order)])
             print(f"  → seed {seed!r} assigned API key #{keys.current_key_number}")
 
-        want = min(per_seed, max_results - collected)
+        # Allocate this seed's share from a budget sized to fit EVERY
+        # seed, not from whatever the earlier seeds left behind.
+        #
+        # THE BUG THIS REPLACED: `want = min(per_seed, max_results -
+        # collected)` charged the shortfall entirely to the last seed.
+        # With 5 seeds, a 700-video floor and a 3,000 target, seeds 1-4
+        # took 700 each and seed 5 was asked for min(700, 3000-2742) =
+        # 258. It looked like a thin topic or heavy overlap — it was
+        # neither. The seed was simply never asked for its share, and
+        # the same seed in position 1 would have returned 700.
+        want = min(per_seed, effective_target - collected)
         regions = _regions_for_seed(seed_index)
         per_region = want if REGION_STRATEGY == "all" else max(1, -(-want // len(regions)))
 
         seed_ids = []
         for region in regions:
-            if keys.exhausted or collected + len(seed_ids) >= max_results:
+            if keys.exhausted or collected + len(seed_ids) >= effective_target:
                 break
             tag = f" [{region}]" if region else ""
             print(f"  Searching seed {seed!r}{tag} (up to {per_region})...")
             ids = _search_windowed(keys, seed, per_region, order, tracker,
+                                   rank_map=rank_map, exhausted=exhausted,
+                                   lookback_days=lookback_days,
                                    region_code=region)
             new = [v for v in ids if v not in seen]
             seen.update(new)
             seed_ids.extend(new)
-            print(f"    +{len(new)} new ({len(ids) - len(new)} dupes)")
+            dupes = len(ids) - len(new)
+            pct = (len(new) / len(ids) * 100) if ids else 0.0
+            print(f"    +{len(new)} new ({dupes} dupes, {pct:.0f}% unique)")
+            seed_yield.append({"seed": seed, "found": len(ids),
+                               "new": len(new), "unique_pct": pct})
 
         # Download THIS SEED's video details before searching the next seed.
         #
@@ -606,6 +785,32 @@ def _collect_raw(api_key, query, max_results, order, tracker):
               "metadata was downloaded). Nothing to save.")
         return pd.DataFrame(), pd.DataFrame()
 
+    # --- seed contribution summary ---
+    #
+    # Each seed pays full search quota BEFORE deduplication, so a seed
+    # that overlaps heavily with earlier ones costs the same as a fresh
+    # one and returns a fraction of the videos. Without this table that
+    # is indistinguishable from "the topic is small", which is a very
+    # different problem with a very different fix.
+    if len(seed_yield) > 1:
+        print("\nSeed contribution:")
+        redundant = []
+        for s in seed_yield:
+            marker = ""
+            if s["unique_pct"] < 40:
+                marker = "  ← mostly duplicates"
+                redundant.append(s["seed"])
+            print(f"  {s['seed'][:28]:<30} {s['found']:>4} found, "
+                  f"{s['new']:>4} new ({s['unique_pct']:>3.0f}%){marker}")
+        if redundant:
+            print(f"\n  {len(redundant)} seed(s) returned under 40% new "
+                  f"videos: {', '.join(repr(s) for s in redundant)}.")
+            print("  Overlapping seeds cost full quota for partial return — "
+                  "each one still")
+            print("  runs a complete search before duplicates are removed. "
+                  "More distinct")
+            print("  terms would collect more videos for the same spend.")
+
     print(f"Downloading channel metadata for {len(channel_ids)} channels...")
     channels_df = _download_channel_details(keys, channel_ids, tracker)
 
@@ -625,6 +830,11 @@ def _collect_raw(api_key, query, max_results, order, tracker):
 
     print("Calculating metrics...")
     df = metrics.calculate_all(df)
+    # Carried on the frame so the depth diagnostic can run after the
+    # quality filters, on the videos that actually survived.
+    df.attrs["seeds"] = list(seeds)
+    df.attrs["rank_map"] = rank_map
+    df.attrs["exhausted"] = exhausted
 
     return df, channels_df
 
@@ -768,7 +978,8 @@ def _save_videos(df, path):
 
 
 def _save_metadata(display_name, query, df, tracker, diag, max_results, path, kind,
-                    order=None, elapsed_seconds=None, quota_cost_this_build=None):
+                    order=None, elapsed_seconds=None, quota_cost_this_build=None,
+                    lookback_days=None):
     oldest_video_days = None
     newest_video_days = None
     if "hours_since_upload" in df.columns and not df.empty:
@@ -780,6 +991,12 @@ def _save_metadata(display_name, query, df, tracker, diag, max_results, path, ki
         "niche": display_name,
         "query": query,
         "order_used": order,
+        # The collection window travels with the dataset. A niche built
+        # over 365 days and a topic collected over 45 describe different
+        # populations, so percentiles from one against the other are
+        # meaningless — and look completely normal. Stored so the grader
+        # can catch the mismatch.
+        "lookback_days": lookback_days if lookback_days is not None else COLLECTION_LOOKBACK_DAYS,
         "videos": len(df),
         "channels": int(df["channel_id"].nunique()) if not df.empty else 0,
         "sample_size": max_results,
@@ -794,6 +1011,14 @@ def _save_metadata(display_name, query, df, tracker, diag, max_results, path, ki
         "median_vph": float(df["views_per_hour"].median()) if "views_per_hour" in df.columns and not df.empty else None,
         "median_views": float(df["view_count"].median()) if not df.empty else None,
         "median_engagement": float(df["engagement_rate"].median()) if "engagement_rate" in df.columns and not df.empty else None,
+        # 90th percentile alongside the median. Two numbers describe a
+        # skewed distribution; one does not. The gap between them says
+        # whether this is a winner-take-all market or a steady one.
+        # P90 rather than mean: on real data, dropping a single video
+        # from a 291-video sample moved the mean 69% and the median 0.9%.
+        "p90_vph": float(df["views_per_hour"].quantile(0.90)) if "views_per_hour" in df.columns and not df.empty else None,
+        "p90_views": float(df["view_count"].quantile(0.90)) if not df.empty else None,
+        "p90_engagement": float(df["engagement_rate"].quantile(0.90)) if "engagement_rate" in df.columns and not df.empty else None,
         "oldest_video_days": oldest_video_days,
         "newest_video_days": newest_video_days,
         "underflowed": diag["underflowed"],
@@ -896,7 +1121,8 @@ def load_database(niche_name):
         ) from e
 
 
-def build_niche_database(api_key, niche_name, query=None, max_results=None, order=None, tracker=None):
+def build_niche_database(api_key, niche_name, query=None, max_results=None,
+                         order=None, tracker=None, lookback_days=None):
     """
     ALWAYS pulls fresh data and overwrites datasets/<niche>/. If a
     previous build exists, it's archived to history/<niche>/<date>/
@@ -929,8 +1155,22 @@ def build_niche_database(api_key, niche_name, query=None, max_results=None, orde
     print(f"Building niche database: {niche_name!r} (query: {query!r}, {max_results} videos)")
     _print_quota_forecast(api_key, query, max_results)
     order = order or SEARCH_ORDER
-    df, _ = _collect_raw(api_key, query, max_results, order, tracker)
-    df = apply_quality_filters(df)
+    # Over-collect: the quality filters run after enrichment and remove a
+    # third to a half of what arrives, almost all of it Shorts. Asking
+    # for the bare target reliably underfills.
+    collect_target = int(max_results * COLLECTION_OVERSHOOT)
+    if COLLECTION_OVERSHOOT > 1:
+        print(f"  Collecting {collect_target:,} to land near {max_results:,} "
+              f"after filtering (~{1/COLLECTION_OVERSHOOT:.0%} typically survives)")
+    df, _ = _collect_raw(api_key, query, collect_target, order, tracker,
+                         lookback_days=lookback_days)
+    _rank = df.attrs.get("rank_map") if hasattr(df, "attrs") else None
+    _exh = df.attrs.get("exhausted") if hasattr(df, "attrs") else None
+    _seeds = df.attrs.get("seeds") if hasattr(df, "attrs") else None
+    df, shorts_df = apply_quality_filters(df, return_shorts=True)
+    if _rank:
+        df.attrs["seeds"] = _seeds or []
+        search_depth_diagnostic(df, _rank, _exh)
     elapsed = time.time() - start_time
 
     if df.empty:
@@ -970,11 +1210,16 @@ def build_niche_database(api_key, niche_name, query=None, max_results=None, orde
 
     print("Saving dataset...")
     _save_videos(df, _videos_path(save_name))
+    if RETAIN_SHORTS and shorts_df is not None and len(shorts_df):
+        _save_videos(shorts_df, _shorts_path(save_name))
+        print(f"  {len(shorts_df):,} Shorts → {_shorts_path(save_name)}")
 
     print("Saving metadata...")
     units_used_so_far = tracker.summary()["used"] - units_before
     _save_metadata(save_name, query, df, tracker, diag, max_results, _metadata_path(save_name),
-                    kind="niche", order=order, elapsed_seconds=elapsed, quota_cost_this_build=units_used_so_far)
+                    kind="niche", order=order, elapsed_seconds=elapsed,
+                    quota_cost_this_build=units_used_so_far,
+                    lookback_days=lookback_days)
     # Record completeness so grading can warn when a baseline is skewed.
     try:
         _mp = _metadata_path(save_name)
@@ -1003,7 +1248,8 @@ def build_niche_database(api_key, niche_name, query=None, max_results=None, orde
     return df
 
 
-def collect_topic(api_key, topic, max_results=None, order=None, tracker=None):
+def collect_topic(api_key, topic, max_results=None, order=None, tracker=None,
+                  lookback_days=None):
     """
     ALWAYS pulls fresh data — no caching. The result IS saved to
     topics/<topic>/ afterward for later reference/comparison — that's
@@ -1024,8 +1270,16 @@ def collect_topic(api_key, topic, max_results=None, order=None, tracker=None):
 
     print(f"Collecting topic: {topic!r} ({max_results} videos)")
     order = order or SEARCH_ORDER
-    df, _ = _collect_raw(api_key, topic, max_results, order, tracker)
-    df = apply_quality_filters(df)
+    collect_target = int(max_results * COLLECTION_OVERSHOOT)
+    df, _ = _collect_raw(api_key, topic, collect_target, order, tracker,
+                         lookback_days=lookback_days)
+    _rank = df.attrs.get("rank_map") if hasattr(df, "attrs") else None
+    _exh = df.attrs.get("exhausted") if hasattr(df, "attrs") else None
+    _seeds = df.attrs.get("seeds") if hasattr(df, "attrs") else None
+    df, shorts_df = apply_quality_filters(df, return_shorts=True)
+    if _rank:
+        df.attrs["seeds"] = _seeds or []
+        search_depth_diagnostic(df, _rank, _exh)
     elapsed = time.time() - start_time
 
     if df.empty:
@@ -1038,7 +1292,9 @@ def collect_topic(api_key, topic, max_results=None, order=None, tracker=None):
     _save_videos(df, _topic_videos_path(topic))
     units_used_so_far = tracker.summary()["used"] - units_before
     _save_metadata(topic, topic, df, tracker, diag, max_results, _topic_metadata_path(topic),
-                    kind="topic", order=order, elapsed_seconds=elapsed, quota_cost_this_build=units_used_so_far)
+                    kind="topic", order=order, elapsed_seconds=elapsed,
+                    quota_cost_this_build=units_used_so_far,
+                    lookback_days=lookback_days)
 
     units_used = tracker.summary()["used"] - units_before
     _log_quota_history("topic_collect", topic, len(df), units_used, elapsed)

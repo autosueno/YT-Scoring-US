@@ -52,6 +52,7 @@ from config import (
     EXPORTS_DIR, EXPORT_COLUMNS,
     BREAKOUT_VELOCITY_WEIGHT, BREAKOUT_DEMAND_WEIGHT,
     BREAKOUT_OUTLIER_WEIGHT, BREAKOUT_LOW_EVIDENCE_VIEWS,
+    BREAKOUT_ERAS, ERA_MIN_VIDEOS,
     CLUSTER_MIN_VIDEOS, CLUSTER_MIN_CHANNELS, CLUSTER_NGRAM_SIZES,
     CLUSTER_MAX, CLUSTER_EVIDENCE_WEIGHT, CLUSTER_EVIDENCE_REFERENCE,
     CLUSTER_WEAK_WORDS, DISCOVERY_EXCLUDE_SHORTS,
@@ -64,6 +65,81 @@ from paths import safe_name, export_dir_for
 # ============================================================
 # SCORING
 # ============================================================
+
+def score_breakouts_within(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Score breakouts against THIS SUBSET rather than the whole niche.
+
+    Used for era ranking. The stored niche baseline mixes every age
+    together, so scoring a 200-day-old video against it means competing
+    with 3-day-old videos whose views_per_hour divides by a hundredth of
+    the hours. Ranking within an era removes that advantage: everyone in
+    the bucket is roughly the same age, so the comparison is about the
+    video rather than about the calendar.
+
+    Percentile rank is computed directly here instead of going through
+    baseline.percentile_of, because the reference population IS the
+    subset.
+    """
+    if df is None or df.empty or "outlier_ratio" not in df.columns:
+        out = (df.copy() if df is not None else pd.DataFrame())
+        out["breakout_score"] = pd.Series(dtype=float)
+        return out
+
+    out = df.copy()
+    parts, weights = [], []
+    for col, w in (("views_per_hour", BREAKOUT_DEMAND_WEIGHT),
+                   ("outlier_ratio", BREAKOUT_OUTLIER_WEIGHT),
+                   ("breakout_velocity", BREAKOUT_VELOCITY_WEIGHT)):
+        if col in out.columns and w > 0:
+            v = pd.to_numeric(out[col], errors="coerce")
+            # pct=True gives the rank as a 0-1 fraction of the subset.
+            parts.append(v.rank(pct=True) * 100.0)
+            weights.append(w)
+    if not parts:
+        out["breakout_score"] = 50.0
+    else:
+        total = sum(weights)
+        score = sum(p * w for p, w in zip(parts, weights)) / total
+        out["breakout_score"] = score.round(1)
+
+    if "view_count" in out.columns:
+        vc = pd.to_numeric(out["view_count"], errors="coerce")
+        out["low_evidence"] = (vc < BREAKOUT_LOW_EVIDENCE_VIEWS).fillna(True)
+    return out.sort_values("breakout_score", ascending=False).reset_index(drop=True)
+
+
+def split_eras(df: pd.DataFrame) -> dict:
+    """
+    Split a dataset into disjoint age eras and rank each one internally.
+
+    Returns {era_key: {"label", "range", "videos", "scored", "clusters"}}
+    for every era with enough videos to be worth ranking.
+    """
+    from insights import _days_since
+    if df is None or df.empty:
+        return {}
+    days = _days_since(df)
+    eras = {}
+    for lo, hi, key, label in BREAKOUT_ERAS:
+        mask = ((days >= lo) & (days < hi)).values
+        sub = df[mask]
+        if len(sub) < ERA_MIN_VIDEOS:
+            eras[key] = {"label": label, "range": (lo, hi),
+                         "videos": int(len(sub)), "skipped": True,
+                         "scored": None, "clusters": []}
+            continue
+        scored = score_breakouts_within(sub)
+        eras[key] = {
+            "label": label,
+            "range": (lo, hi),
+            "videos": int(len(sub)),
+            "skipped": False,
+            "scored": scored,
+            "clusters": build_clusters(scored),
+        }
+    return eras
+
 
 def score_breakouts(df: pd.DataFrame, baseline: Baseline) -> pd.DataFrame:
     """
@@ -244,6 +320,149 @@ def build_clusters(scored_df: pd.DataFrame) -> list:
 # EXPORT
 # ============================================================
 
+def attach_search_demand(clusters, niche_name):
+    """
+    Annotate clusters with search volume from a previous Option 7 run.
+
+    A SEPARATE column, never folded into cluster_score. Two reasons:
+
+    1. The match is rough. Cluster topics are title fragments with
+       stopwords stripped ("stocks buy" is what remains of "...Stocks to
+       Buy Now..."), while autocomplete returns whole search phrases
+       ("memory stocks to buy"). Nobody types "stocks buy". Lining the
+       two up is good enough to raise a flag, not to move a number.
+    2. Folding it in would make cluster_score depend on whether the user
+       happened to run Option 7 — the same dataset producing different
+       scores, with no visible cause.
+
+    Returns the clusters unchanged when no intent file exists.
+    """
+    import csv as _csv
+    from paths import search_export_dir as _sed
+    path = os.path.join(_sed(EXPORTS_DIR, niche_name), "intent_gaps.csv")
+    if not os.path.exists(path):
+        return clusters, False
+    try:
+        with open(path, newline="", encoding="utf-8") as f:
+            rows = list(_csv.DictReader(f))
+    except Exception:
+        return clusters, False
+    if not rows:
+        return clusters, False
+
+    queries = []
+    for r in rows:
+        q = (r.get("query") or "").lower()
+        try:
+            w = float(r.get("autocomplete_weight") or 0)
+        except ValueError:
+            w = 0.0
+        if q:
+            queries.append((set(q.split()), w))
+
+    for c in clusters:
+        words = set(str(c.get("topic", "")).lower().split())
+        if not words:
+            continue
+        # A query counts if it contains EVERY word of the cluster topic.
+        matched = [w for qwords, w in queries if words <= qwords]
+        c["search_matches"] = len(matched)
+        c["search_weight"] = round(sum(matched), 1)
+        c["search_level"] = ("high" if sum(matched) >= 20 else
+                             "moderate" if sum(matched) >= 5 else
+                             "low" if matched else "none found")
+    return clusters, True
+
+
+def export_eras(df: pd.DataFrame, niche_name: str) -> dict:
+    """
+    Write by_era.md and clusters_by_era.csv.
+
+    Reading down the eras answers a question the single ranked list
+    cannot: which themes are DURABLE and which were a moment. A cluster
+    appearing in all three eras is a format; one appearing only in the
+    most recent is probably a news cycle.
+    """
+    eras = split_eras(df)
+    if not eras:
+        return {}
+    out_dir = export_dir_for(EXPORTS_DIR, niche_name, "breakouts")
+    md_path = os.path.join(out_dir, "by_era.md")
+
+    L = [f"# Breakouts by era — {niche_name}", ""]
+    L.append("Videos ranked against their own contemporaries rather than "
+             "against the whole year.")
+    L.append("")
+    L.append("> **Why this exists.** `views_per_hour` divides by age, so a "
+             "3-day-old video divides by 72 hours and a 300-day-old one by "
+             "7,200. On real data that gave videos under 30 days a median "
+             "breakout score of 89 and videos over 180 days a score of 26 — "
+             "the main list was really \"recent videos\" with a "
+             "\"breakouts\" label. Splitting into eras lets each period's "
+             "actual winners surface.")
+    L.append("")
+
+    # --- theme durability, the payoff of having eras at all ---
+    theme_eras = {}
+    for key, e in eras.items():
+        for c in e.get("clusters", []):
+            theme_eras.setdefault(c["topic"], []).append(key)
+    durable = {t: ks for t, ks in theme_eras.items() if len(ks) >= 2}
+    if durable:
+        L.append("## Durable themes")
+        L.append("")
+        L.append("Appearing in more than one era — a format rather than a "
+                 "moment.")
+        L.append("")
+        L.append("| theme | eras |")
+        L.append("|---|---|")
+        for t, ks in sorted(durable.items(), key=lambda kv: -len(kv[1])):
+            L.append(f"| {t} | {', '.join(ks)} |")
+        L.append("")
+
+    for key, e in eras.items():
+        if e.get("skipped"):
+            L.append(f"## {e['label']} ({key})")
+            L.append("")
+            L.append(f"Only {e['videos']} videos — too few to rank. A top-20 "
+                     f"from a list this short is just the list, sorted.")
+            L.append("")
+            continue
+        L.append(f"## {e['label']}  ·  {key}  ·  {e['videos']} videos")
+        L.append("")
+        s = e["scored"]
+        L.append("| score | views | subs | title |")
+        L.append("|---|---|---|---|")
+        for r in s.head(15).itertuples():
+            t = str(r.title)[:58].replace("|", "\\|")
+            subs = int(r.channel_subs) if pd.notna(getattr(r, "channel_subs", None)) else 0
+            L.append(f"| {r.breakout_score:.1f} | {int(r.view_count):,} | "
+                     f"{subs:,} | {t} |")
+        L.append("")
+        if e["clusters"]:
+            L.append("**Themes:** "
+                     + ", ".join(f"`{c['topic']}`" for c in e["clusters"][:8]))
+            L.append("")
+
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+
+    rows = []
+    for key, e in eras.items():
+        for c in e.get("clusters", []):
+            rows.append({"era": key, "era_label": e["label"],
+                         "topic": c["topic"], "cluster_score": c["cluster_score"],
+                         "videos": c["videos"],
+                         "unique_channels": c["unique_channels"]})
+    csv_path = os.path.join(out_dir, "clusters_by_era.csv")
+    if rows:
+        pd.DataFrame(rows).to_csv(csv_path, index=False)
+
+    return {"md": md_path, "csv": csv_path if rows else None,
+            "eras": sum(1 for e in eras.values() if not e.get("skipped")),
+            "durable_themes": len(durable)}
+
+
 def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> dict:
     """
     Score, cluster, and write the FULL ranked video list plus the cluster
@@ -337,16 +556,34 @@ def _markdown_report(slim, clusters, niche_name) -> str:
 """)
 
     if clusters:
+        clusters, has_search = attach_search_demand(clusters, niche_name)
         out.append("\n## Topic clusters (ranked by evidence-weighted breakout)\n")
-        out.append("| # | topic | cluster_score | videos | channels | avg_breakout | avg_vph | small_creator_share |")
-        out.append("|---|---|---|---|---|---|---|---|")
+        if has_search:
+            out.append("> The **search** column comes from your last Option 7 "
+                       "autocomplete run. It is reported SEPARATELY and does "
+                       "not affect cluster_score — cluster topics are title "
+                       "fragments (\"stocks buy\") while autocomplete returns "
+                       "whole phrases (\"memory stocks to buy\"), so the match "
+                       "is good enough to flag something, not to move a "
+                       "number. A high-scoring cluster with **none found** is "
+                       "worth a look.")
+            out.append("")
+        head = ("| # | topic | cluster_score | videos | channels | "
+                "avg_breakout | avg_vph | small_creator_share |")
+        rule = "|---|---|---|---|---|---|---|---|"
+        if has_search:
+            head = head[:-1] + " search |"
+            rule = rule + "---|"
+        out.append(head)
+        out.append(rule)
         for i, c in enumerate(clusters, 1):
             scs = "" if c["small_creator_share"] is None else f"{c['small_creator_share']:.0%}"
             vph = "" if c["avg_views_per_hour"] is None else f"{c['avg_views_per_hour']:,.0f}"
-            out.append(
-                f"| {i} | {c['topic']} | {c['cluster_score']} | {c['videos']} | "
-                f"{c['unique_channels']} | {c['avg_breakout']} | {vph} | {scs} |"
-            )
+            row = (f"| {i} | {c['topic']} | {c['cluster_score']} | {c['videos']} | "
+                   f"{c['unique_channels']} | {c['avg_breakout']} | {vph} | {scs} |")
+            if has_search:
+                row += f" {c.get('search_level', '—')} |"
+            out.append(row)
         out.append("\n### Example titles per cluster\n")
         for i, c in enumerate(clusters[:15], 1):
             out.append(f"**{i}. {c['topic']}**")

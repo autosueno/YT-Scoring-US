@@ -75,7 +75,7 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;border-top:1px solid var
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body><div class='wrap'>
 <header><p class='eyebrow'>YouTube Market Intelligence Engine</p>
-<h1>9 jobs, and how to run each one.</h1>
+<h1>11 jobs, and how to run each one.</h1>
 <p class='standfirst'>The menu has 10 options. On their own they don't do much — the value is in chaining them. Each workflow below is a chain, priced so you can see what it costs before you start.</p></header>
 <section class='menu'><p class='menu-title'>py main.py</p><div class='menu-grid'>
 <div class='menu-row'><span class='key dear'>1</span><span>Build / refresh a niche database</span></div>
@@ -177,6 +177,24 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;border-top:1px solid var
 </div>
 <p class='note'>The only <strong>measured</strong> demand figure the engine produces. Everywhere else `views_per_hour` is a lifetime average, so a video that did 400k views in its first week and nothing since reports a healthy number forever. Two snapshots give actual views gained — which separates <strong>still being watched</strong> from <strong>finished months ago</strong>. Needs two builds of the same niche, days apart.</p>
 <p class='cost'>Free · reads the history/ folder</p></article>
+<article class='job' style="--tint:var(--mint)">
+<h2>See which themes actually last</h2><p class='aim'>Is this format durable, or was it a moment?</p>
+<div class='chain'>
+<span class='step'><span class='key free'>3</span>discover</span>
+<span class='arrow'>→</span>
+<span class='file'>breakouts/by_era.md</span>
+</div>
+<p class='note'>Breakouts split into 0-90d / 90-180d / 180-365d, each ranked against its own contemporaries. A theme appearing in all three eras is a <strong>format</strong>; one appearing only in the newest is a news cycle. Fixes an age bias where recent videos took 43 of the top 50 and the single biggest video in the dataset was invisible.</p>
+<p class='cost'>Free · slices the build you already have</p></article>
+<article class='job' style="--tint:var(--mint)">
+<h2>Mine the Shorts you filtered out</h2><p class='aim'>A third of every build is Shorts. What were they about?</p>
+<div class='chain'>
+<span class='step'><span class='key free'>3</span>discover</span>
+<span class='arrow'>→</span>
+<span class='file'>shorts/shorts.md</span>
+</div>
+<p class='note'>Subjects busy in short form but thin in long-form — attention exists, nobody made the full version. <strong>Leads, not findings</strong>: a Short's views come from the feed, not from search, so short-form attention doesn't prove anyone would search for a ten-minute version. Written automatically; costs nothing extra.</p>
+<p class='cost'>Free · data was already collected</p></article>
 <article class='job wide' style="--tint:var(--mint)">
 <h2>Find a repeatable format</h2><p class='aim'>A series, not a one-off. At a small channel size this matters more than any single video decision here.</p>
 <div class='chain'>
@@ -197,5 +215,5 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;border-top:1px solid var
 <dt>Measure search demand in the scoring</dt><dd>Scores are built from how existing videos performed. A topic nobody has covered looks identical to a topic nobody wants. Option 7 gets close from the outside, but it doesn't feed the scoring yet.</dd>
 <dt>See why a video worked</dt><dd>Click-through rate, average view duration, retention and traffic sources are private analytics. No public API exposes them at any price, for any channel. Everything here is inference from outside.</dd>
 </dl></section>
-<footer><span>22 modules</span><span>Deterministic — same data in, same answer out</span><span>Math discovers, AI explains</span><span>Generated 2026-07-24</span></footer>
+<footer><span>23 modules</span><span>Deterministic — same data in, same answer out</span><span>Math discovers, AI explains</span><span>Generated 2026-08-04</span></footer>
 </div></body></html>

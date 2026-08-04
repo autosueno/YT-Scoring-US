@@ -24,6 +24,7 @@ Run:
 """
 
 import os
+import json
 import sys
 from datetime import datetime, timezone
 
@@ -89,7 +90,8 @@ def _should_rebuild(niche_name: str) -> bool:
 # HIGH-LEVEL WORKFLOWS
 # ============================================================
 
-def ensure_niche(api_key, niche_name, query=None, tracker=None, force=False):
+def ensure_niche(api_key, niche_name, query=None, tracker=None, force=False,
+                 lookback_days=None):
     """
     Ensure a fresh-enough niche database exists, rebuilding if needed.
 
@@ -104,7 +106,8 @@ def ensure_niche(api_key, niche_name, query=None, tracker=None, force=False):
         )
         print(f"Rebuilding niche {niche_name!r} — {reason}.")
         df = collector.build_niche_database(
-            api_key, niche_name, query=query, tracker=tracker
+            api_key, niche_name, query=query, tracker=tracker,
+            lookback_days=lookback_days
         )
     else:
         age = _niche_age_days(niche_name)
@@ -132,14 +135,27 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
 
     # 2. Topic data (always fresh — a grade should reflect right now)
     print(f"\nCollecting topic {topic!r}...")
-    topic_df = collector.collect_topic(api_key, topic, tracker=tracker)
+    # Collect the topic over the SAME window the niche used. Grading is
+    # percentile-based, so a topic sampled over 45 days against a
+    # baseline built over 365 compares two different populations — the
+    # topic looks artificially fresh, and nothing in the output shows it.
+    niche_meta = collector.load_metadata(niche_name) or {}
+    niche_lookback = niche_meta.get("lookback_days")
+    if niche_lookback and niche_lookback != config.COLLECTION_LOOKBACK_DAYS:
+        print(f"  Matching the niche's {niche_lookback}-day collection "
+              f"window.")
+    topic_df = collector.collect_topic(api_key, topic, tracker=tracker,
+                                       lookback_days=niche_lookback)
     if topic_df.empty:
         print(f"No data for topic {topic!r}. Aborting grade.")
         return None
 
     # 3. Grade
     baseline = load_baseline(niche_name)
-    result = grade_topic(topic_df, baseline, topic)
+    # Momentum windows scale to the collection period, so the grader
+    # needs to know which window this data came from.
+    result = grade_topic(topic_df, baseline, topic,
+                         lookback_days=niche_lookback)
 
     # 4. Report
     report.print_grade(result)
@@ -196,7 +212,9 @@ def grade_existing_niche(niche_name):
         return None
     df = collector.load_database(niche_name)
     baseline = load_baseline(niche_name)
-    result = grade_niche(df, baseline, niche_name)
+    meta = collector.load_metadata(niche_name) or {}
+    result = grade_niche(df, baseline, niche_name,
+                         lookback_days=meta.get('lookback_days'))
     report.print_grade(result)
     try:
         path = dashboard.export_dashboard(result, niche_name)
@@ -248,6 +266,200 @@ def _warn_if_incomplete(niche_name):
         print("     baselines can be skewed. Fine for discovery; treat")
         print("     topic grades as indicative rather than precise.")
         print()
+
+
+def _offer_slice_instead(niche_base, requested_days):
+    """
+    If a longer build exists, offer slicing rather than collecting again.
+
+    Returns "slice", "build", or "cancel". Says nothing and returns
+    "build" when there is no longer dataset to slice.
+    """
+    import paths as _p
+    base, _ = _p.split_window(niche_base)
+    root = os.path.join(config.DATASETS_DIR, _p.safe_name(base))
+    if not os.path.isdir(root):
+        return "build"
+    longer = []
+    for d in sorted(os.listdir(root)):
+        if not (d.endswith("d") and d[:-1].isdigit()):
+            continue
+        days = int(d[:-1])
+        if days > requested_days:
+            longer.append((days, f"{base}{_p.WINDOW_SEP}{d}"))
+    if not longer:
+        return "build"
+
+    days, key = max(longer)
+    try:
+        existing = collector.load_database(key)
+    except Exception:
+        return "build"
+    if existing is None or existing.empty:
+        return "build"
+
+    import insights as _ins
+    ages = _ins._days_since(existing)
+    in_window = int((ages <= requested_days).sum())
+
+    print(f"\n  A {days}d build of {base!r} already exists "
+          f"({len(existing):,} videos).")
+    print(f"  {in_window:,} of them fall within your requested "
+          f"{requested_days}d window.")
+    if in_window < 80:
+        print("  That is thin — percentiles from under ~80 videos are "
+              "noisy, so a")
+        print(f"  fresh {requested_days}d build would be meaningfully "
+              f"better here.")
+    else:
+        print("  That is probably enough to work with, and costs nothing.")
+    print()
+    print(f"    1) Slice the existing {days}d build (free)")
+    print(f"    2) Build a fresh {requested_days}d dataset "
+          f"(~13,000+ units)")
+    print( "    3) Cancel")
+    choice = input("  Choose [1]: ").strip() or "1"
+    return {"1": "slice", "2": "build", "3": "cancel"}.get(choice, "slice")
+
+
+def _build_from_slice(niche_base, requested_days):
+    """
+    Create a real dataset for a shorter window by slicing a longer one.
+
+    The first version of this just returned to the menu saying "reports
+    will slice it for you" — which nothing did. Slicing has to actually
+    PRODUCE something: a dataset on disk at the requested window, with
+    its own statistics, baseline and exports, indistinguishable from a
+    collected one except that it cost nothing.
+
+    Statistics and insights are recomputed from the slice rather than
+    copied, because percentiles come from the reference population. A
+    90-day slice graded against 365-day percentiles would compare a
+    video to a population it is not part of.
+    """
+    import pandas as pd
+    import paths as _p
+    import statistics as _sm
+    import insights as _ins
+    base, _ = _p.split_window(niche_base)
+    root = os.path.join(config.DATASETS_DIR, _p.safe_name(base))
+    longer = [(int(d[:-1]), f"{base}{_p.WINDOW_SEP}{d}")
+              for d in os.listdir(root)
+              if d.endswith("d") and d[:-1].isdigit()
+              and int(d[:-1]) > requested_days]
+    if not longer:
+        print("  Nothing longer to slice from.")
+        return
+    src_days, src_key = max(longer)
+    dest_key = _p.with_window(base, requested_days)
+
+    df = collector.load_database(src_key)
+    ages = _ins._days_since(df)
+    sliced = df[(ages <= requested_days).values].reset_index(drop=True)
+    if sliced.empty:
+        print("  No videos fall inside that window.")
+        return
+
+    print(f"\n  Slicing {len(sliced):,} of {len(df):,} videos from the "
+          f"{src_days}d build...")
+    os.makedirs(collector._niche_dir(dest_key), exist_ok=True)
+    collector._save_videos(sliced, collector._videos_path(dest_key))
+    _sm.save_statistics(sliced, collector._statistics_path(dest_key))
+    _ins.save_insights(_ins.generate_insights(sliced),
+                       collector._insights_path(dest_key))
+
+    src_meta = collector.load_metadata(src_key) or {}
+    meta = dict(src_meta)
+
+    # EVERY summary figure must be recomputed from the slice. Copying the
+    # parent's metadata and updating only the obvious fields left the
+    # medians and P90s behind, so a 751-video 90-day slice displayed the
+    # exact profile of its 2,333-video parent — same 1,410 median, same
+    # 36.2x spread — which is precisely the kind of confidently wrong
+    # number that is worse than no number.
+    def _stat(col, q):
+        if col not in sliced.columns:
+            return None
+        v = pd.to_numeric(sliced[col], errors="coerce").dropna()
+        return float(v.quantile(q)) if len(v) else None
+
+    meta.update({
+        "niche": base,
+        "videos": int(len(sliced)),
+        "channels": int(sliced["channel_id"].nunique()),
+        "lookback_days": requested_days,
+        "created": datetime.now(timezone.utc).isoformat(),
+        "median_vph": _stat("views_per_hour", 0.50),
+        "median_views": _stat("view_count", 0.50),
+        "median_engagement": _stat("engagement_rate", 0.50),
+        "p90_vph": _stat("views_per_hour", 0.90),
+        "p90_views": _stat("view_count", 0.90),
+        "p90_engagement": _stat("engagement_rate", 0.90),
+        # Age span belongs to the slice too.
+        "oldest_video_days": float(
+            pd.to_numeric(sliced["hours_since_upload"], errors="coerce").max() / 24)
+            if "hours_since_upload" in sliced.columns else None,
+        "newest_video_days": float(
+            pd.to_numeric(sliced["hours_since_upload"], errors="coerce").min() / 24)
+            if "hours_since_upload" in sliced.columns else None,
+        # Recorded so a later reader knows this was not independently
+        # collected — it inherits the parent's seed coverage and its
+        # sampling density, which is thinner for recent months than a
+        # dedicated short build would be.
+        "derived_from": src_key,
+        "derived_note": (f"Sliced from the {src_days}d build rather than "
+                         f"collected. Sampling density in this window is "
+                         f"whatever the parent build allocated to it."),
+    })
+    with open(collector._metadata_path(dest_key), "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2)
+
+    print(f"  Dataset written → {collector._niche_dir(dest_key)}")
+    print("  Statistics and baseline recomputed from the slice, so "
+          "percentiles")
+    print(f"  reference the {requested_days}d population rather than the "
+          f"parent's.")
+    try:
+        report.print_niche_summary(meta, sliced)
+    except Exception:
+        pass
+    if input("\n  Run discovery on it now? [Y/n]: ").strip().lower() != "n":
+        discover_opportunities(dest_key)
+
+
+def _pick_niche(prompt="Niche display name: "):
+    """
+    Resolve a niche name to a specific stored WINDOW.
+
+    A niche can exist at several collection windows at once
+    (finance/365d, finance/60d). They are different datasets describing
+    different populations and are not interchangeable, so when more than
+    one exists the user picks rather than the tool guessing. With exactly
+    one, it is chosen silently.
+    """
+    import paths as _p
+    raw = input(prompt).strip()
+    if not raw:
+        return None
+    base, win = _p.split_window(raw)
+    if win:
+        return raw
+    root = os.path.join(config.DATASETS_DIR, _p.safe_name(base))
+    if not os.path.isdir(root):
+        return raw
+    windows = sorted(d for d in os.listdir(root)
+                     if os.path.isdir(os.path.join(root, d))
+                     and d.endswith("d") and d[:-1].isdigit())
+    if not windows:
+        return raw
+    if len(windows) == 1:
+        return f"{base}{_p.WINDOW_SEP}{windows[0]}"
+    print(f"\n  {base!r} exists at several collection windows:")
+    for i, w in enumerate(windows, 1):
+        print(f"    {i}) {w}")
+    pick = input("  Choose [1]: ").strip() or "1"
+    idx = int(pick) - 1 if pick.isdigit() and 0 < int(pick) <= len(windows) else 0
+    return f"{base}{_p.WINDOW_SEP}{windows[idx]}"
 
 
 def _require_database(niche_name) -> bool:
@@ -342,10 +554,40 @@ def discover_opportunities(niche_name):
     except Exception as e:
         print(f"  (curation prompt skipped: {type(e).__name__}: {e})")
 
+    # Breakouts and clusters split by era. Ranked within each era, so a
+    # six-month-old video competes with its contemporaries rather than
+    # with videos that had a ten-fold arithmetic advantage on age.
+    try:
+        era_paths = discover.export_eras(df, niche_name)
+        if era_paths.get("md"):
+            print(f"  by era          → {era_paths['md']}")
+            print(f"     ↳ {era_paths['eras']} eras ranked separately, "
+                  f"{era_paths['durable_themes']} themes appear in more "
+                  f"than one.")
+    except Exception as e:
+        print(f"  (era breakdown skipped: {type(e).__name__}: {e})")
+
+    # Shorts signal, if any were retained. Written here rather than as
+    # its own menu option because it reads data the build already
+    # collected — there is nothing to fetch and no reason to make the
+    # user ask for it separately.
+    try:
+        import shorts as _shorts
+        sres = _shorts.export_shorts_report(niche_name, long_df=df)
+        if not sres.get("error"):
+            print(f"  shorts signal   → {sres['md']}")
+            print(f"     ↳ {sres['shorts']:,} Shorts analysed, "
+                  f"{sres['gaps']} subjects busy in short form but thin "
+                  f"in long-form.")
+    except Exception as e:
+        print(f"  (shorts report skipped: {type(e).__name__}: {e})")
+
     # Angle generation + transcript study. These convert FINDINGS into
     # things that can be scripted — the step percentile math cannot do.
     try:
-        grade_result = grade_niche(df, baseline, niche_name)
+        _meta = collector.load_metadata(niche_name) or {}
+        grade_result = grade_niche(df, baseline, niche_name,
+                                   lookback_days=_meta.get('lookback_days'))
         ang = angles.write_angles_prompt(scored, clusters, niche_name,
                                          grade_result=grade_result)
         tra = angles.write_transcript_study(scored, niche_name)
@@ -400,24 +642,66 @@ def _dispatch(choice):
         # build under soft reservation drained key #2, then option-2 hit
         # a bare 429 with no live keys left. This makes the reserve real.
         keys.reserve_for_topics(True)
-        niche = input("Niche display name: ").strip()
+        niche = _pick_niche()
         query = input(
             "Seed queries, comma-separated (Enter to reuse niche name)\n"
             "  e.g. finance, investing, economics, banking, stocks: "
         ).strip() or None
+        print("\n  Collection window:")
+        for i, (days, label) in enumerate(config.LOOKBACK_PRESETS, 1):
+            mark = "  (default)" if days == config.COLLECTION_LOOKBACK_DAYS else ""
+            print(f"    {i}) {days:>3} days — {label}{mark}")
+        pick = input("  Choose [Enter for default]: ").strip()
+        lookback = config.COLLECTION_LOOKBACK_DAYS
+        if pick.isdigit() and 1 <= int(pick) <= len(config.LOOKBACK_PRESETS):
+            lookback = config.LOOKBACK_PRESETS[int(pick) - 1][0]
+
+        # Before spending quota on a short window, check whether a LONGER
+        # build already exists. A 365-day dataset contains every shorter
+        # window inside it, so a 60-day view can often be sliced for free.
+        # Slicing is thinner — a year-build spreads its budget across 13
+        # months, so only ~1/13 lands in any recent month — so the check
+        # counts the actual videos rather than guessing.
+        sliced = _offer_slice_instead(niche, lookback)
+        if sliced == "cancel":
+            return
+        if sliced == "slice":
+            _build_from_slice(niche, lookback)
+            return
+        if lookback < 90:
+            print(f"  ⚠️  {lookback}-day window: expect far fewer videos, and "
+                  f"percentiles from a thin\n      sample are noisy. Good for "
+                  f"spotting movement, weak as a baseline.")
         force = input("Force rebuild even if fresh? [y/N]: ").strip().lower() == "y"
-        df, tracker = ensure_niche(keys, niche, query=query, force=force)
+        # The window becomes part of the storage key, so a 60-day build
+        # never overwrites a 365-day one of the same name.
+        import paths as _p
+        niche_key = _p.with_window(niche, lookback)
+        df, tracker = ensure_niche(keys, niche_key, query=query, force=force,
+                                   lookback_days=lookback)
+        niche = niche_key
         meta = collector.load_metadata(niche)
         if meta:
             report.print_niche_summary(meta, df)
         report.print_quota(tracker)
+        # The build SAVES Shorts; the report on them is written by
+        # discovery. Say so, because seeing shorts.csv appear with no
+        # accompanying analysis reads like something failed.
+        try:
+            import shorts as _sh
+            if _sh.load_shorts(niche) is not None:
+                print("\n  Shorts were saved but not yet analysed — run "
+                      "option 3 to get\n  the shorts report "
+                      "(exports/.../shorts/shorts.md).")
+        except Exception:
+            pass
 
     elif choice == "2":
         keys = _load_keys_or_exit()
         # Topic grading starts on the reserved tail keys so a big niche
         # build can never leave grading without quota.
         keys.use_reserved_keys()
-        niche = input("Niche name (baseline to grade against): ").strip()
+        niche = _pick_niche("Niche name (baseline to grade against): ")
         query = input("Niche seed queries (Enter to reuse niche name): ").strip() or None
         topic = input("Topic to grade: ").strip()
         formats = _prompt_formats()
@@ -465,7 +749,7 @@ def _dispatch_trends():
     gained between two observations, which separates a video still being
     watched from one that stopped months ago.
     """
-    niche = input("Niche display name: ").strip()
+    niche = _pick_niche()
     if not niche:
         print("  (no niche given — cancelled)")
         return
@@ -571,7 +855,7 @@ def _dispatch_signals():
     rest of the engine.
     """
     import signals as _signals
-    niche = input("Niche display name: ").strip()
+    niche = _pick_niche()
     if not niche:
         print("  (no niche given — cancelled)")
         return
@@ -623,8 +907,10 @@ def _dispatch_signals():
         choice = input("\nChoose [1-6]: ").strip()
         stem, title = "intent_gaps", None
         if choice == "6":
-            raw = input("Seeds, comma-separated: ").strip()
-            seeds = [s.strip() for s in raw.split(",") if s.strip()]
+            raw = input(f"Seeds, comma-separated (up to "
+                        f"{_cfg.SIGNALS_MAX_SEEDS}): ").strip()
+            seeds = [s.strip() for s in raw.split(",")
+                     if s.strip()][:_cfg.SIGNALS_MAX_SEEDS]
             if not seeds:
                 print("  (no seeds given — cancelled)")
                 return
@@ -700,7 +986,7 @@ def _dispatch_thumbnail_sheet():
     fetch the thumbnail images themselves.
     """
     import thumbnail_sheet
-    niche = input("Niche display name: ").strip()
+    niche = _pick_niche()
     if not niche:
         print("  (no niche given — cancelled)")
         return

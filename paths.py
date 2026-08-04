@@ -76,7 +76,25 @@ def export_dir_for(exports_root: str, niche_name: str,
     section=None returns the niche root, which is still the right place
     for anything that spans sections.
     """
-    d = os.path.join(exports_root, safe_name(niche_name))
+    d = _nest(os.path.join(exports_root, EXPORT_KIND_NICHE), niche_name)
+    if section:
+        d = os.path.join(d, section)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def search_export_dir(exports_root: str, niche_name: str,
+                      section: str = None) -> str:
+    """
+    exports/searches/<niche>/<window>/ — autocomplete and Reddit output.
+
+    Kept out of the niche folder because it is a different KIND of
+    evidence: everything under niches/ is measured from videos that
+    exist, while everything here is measured from outside them — what
+    people type, what they post about. Mixing the two invites reading an
+    inferred signal as a measured one.
+    """
+    d = _nest(os.path.join(exports_root, EXPORT_KIND_SEARCH), niche_name)
     if section:
         d = os.path.join(d, section)
     os.makedirs(d, exist_ok=True)
@@ -87,8 +105,68 @@ def export_dir_for(exports_root: str, niche_name: str,
 # NICHE PATHS
 # ============================================================
 
+# A niche is identified by NAME + COLLECTION WINDOW. "finance" collected
+# over 365 days and "finance" collected over 60 days are different
+# datasets describing different populations, and writing both to
+# datasets/finance/ means the second silently destroys the first.
+#
+# Rather than thread a window argument through ~64 call sites in a dozen
+# modules, the window rides along inside the niche string as
+# "finance@365d". Every existing caller keeps passing one string; the
+# path helpers split it into a folder level. Names without "@" behave
+# exactly as before, so datasets built before this change still load.
+WINDOW_SEP = "@"
+
+
+def split_window(niche_name: str):
+    """'finance@365d' -> ('finance', '365d');  'finance' -> ('finance', None)"""
+    if WINDOW_SEP in str(niche_name):
+        base, win = str(niche_name).rsplit(WINDOW_SEP, 1)
+        return base, win
+    return niche_name, None
+
+
+def with_window(niche_name: str, lookback_days) -> str:
+    """Compose the storage key for a niche collected over a given window."""
+    base, _ = split_window(niche_name)
+    if not lookback_days:
+        return base
+    return f"{base}{WINDOW_SEP}{int(lookback_days)}d"
+
+
+def display_name(niche_name: str) -> str:
+    """Human-facing label: 'finance@60d' -> 'finance (60d window)'."""
+    base, win = split_window(niche_name)
+    return f"{base} ({win} window)" if win else base
+
+
+# Top-level export folders, grouped by WHAT KIND of thing is being
+# analysed rather than by name. Opening exports/ and seeing "finance"
+# next to "_channels" mixed one kind of object with a category; now the
+# first level is always the kind, so you know what you are looking at
+# before you know what it is about.
+EXPORT_KIND_NICHE = "niches"
+EXPORT_KIND_TOPIC = "topics"
+EXPORT_KIND_CHANNEL = "channels"
+EXPORT_KIND_SEARCH = "searches"
+
+
+def _nest(root: str, niche_name: str) -> str:
+    """root/<niche>/<window>/ — the window becomes its own folder level."""
+    base, win = split_window(niche_name)
+    d = os.path.join(root, safe_name(base))
+    if win:
+        d = os.path.join(d, safe_name(win))
+    return d
+
+
 def niche_dir(niche_name: str) -> str:
-    return os.path.join(DATASETS_DIR, safe_name(niche_name))
+    return _nest(DATASETS_DIR, niche_name)
+
+
+def shorts_path(niche_name: str) -> str:
+    """Shorts live beside the main dataset, not inside it."""
+    return os.path.join(niche_dir(niche_name), "shorts.csv")
 
 
 def videos_path(niche_name: str) -> str:
@@ -113,7 +191,7 @@ def insights_path(niche_name: str) -> str:
 
 def history_dir(niche_name: str, date_str: str) -> str:
     """Archive destination for a previous build, dated by its own build date."""
-    return os.path.join(HISTORY_DIR, safe_name(niche_name), date_str)
+    return os.path.join(_nest(HISTORY_DIR, niche_name), date_str)
 
 
 # ============================================================
@@ -132,7 +210,7 @@ def channel_export_dir(exports_root: str, channel_name: str,
     at the time would make it impossible to find later. The underscore
     prefix keeps _channels sorted away from the niche folders.
     """
-    d = os.path.join(exports_root, "_channels", safe_name(channel_name))
+    d = os.path.join(exports_root, EXPORT_KIND_CHANNEL, safe_name(channel_name))
     if section:
         d = os.path.join(d, section)
     os.makedirs(d, exist_ok=True)
@@ -155,7 +233,7 @@ def topic_export_dir(exports_root: str, topic: str, section: str = None) -> str:
     kinds of analysis visibly separate, the same way channel teardowns
     live under _channels/. The underscore sorts them away from niches.
     """
-    d = os.path.join(exports_root, "_topics", safe_name(topic))
+    d = os.path.join(exports_root, EXPORT_KIND_TOPIC, safe_name(topic))
     if section:
         d = os.path.join(d, section)
     os.makedirs(d, exist_ok=True)

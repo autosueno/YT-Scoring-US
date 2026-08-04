@@ -62,14 +62,33 @@ def print_grade(result: dict):
                 reason = p.get("reason", "insufficient data")
                 print(f"    {pname:<10}   —   [not scored]  ({reason})")
                 continue
-            bar = _score_bar(p["score"])
-            print(f"    {pname:<10} {p['score']:5.1f}/100  [{p['grade']}]  {bar}")
+            # Momentum is rendered on a SIGNED axis, the others on 0-100.
+            # They are not the same kind of number: demand 50 means "at
+            # the niche median", momentum 50 means "nothing has changed".
+            # Sharing a bar style invites the eye to compare them, which
+            # is exactly the wrong reading.
+            signed = p.get("signed_change")
+            if pname == "momentum" and signed is not None:
+                bar = _signed_bar(signed)
+                print(f"    {pname:<10} {signed:+5.1f}     [{p['grade']}]  "
+                      f"{bar}   0 = breakeven")
+            else:
+                bar = _score_bar(p["score"])
+                print(f"    {pname:<10} {p['score']:5.1f}/100  [{p['grade']}]  {bar}")
             # Signal groups first (graded sub-scores), then raw metrics.
             for gname, g in p.get("groups", {}).items():
                 print(f"        {gname:<24} {g['score']:5.1f}  [{g['grade']}]"
                       f"  (weight {g['weight']:.0%})")
             for mname, mscore in p.get("metrics", {}).items():
-                print(f"          · {mname:<24} {mscore:5.1f}")
+                # Signed components get an explicit sign and a plain-word
+                # reading. A bare "-74.2" beside demand's percentiles
+                # looks like a catastrophic score; it actually means the
+                # quantity roughly halved.
+                if pname == "momentum" and signed is not None:
+                    print(f"          · {mname:<26} {mscore:+6.1f}   "
+                          f"{signed_reading(mscore)}")
+                else:
+                    print(f"          · {mname:<24} {mscore:5.1f}")
 
     # Opportunity LAST — it is derived from the pillars above, so the
     # report reads in computation order: measured inputs, then the result.
@@ -78,8 +97,12 @@ def print_grade(result: dict):
         print()
         print("  " + "-" * 56)
         print("  Opportunity is DERIVED from the pillars above:")
-        mom = opp.get("momentum_score")
-        mom_txt = "abstained" if (opp.get("momentum_abstained") or mom is None) else f"{mom:.0f}"
+        # Signed, to match the pillar bar directly above. The 0-100 form
+        # sat in a row with demand and supply and read as a third
+        # comparable score, which it is not.
+        mom = opp.get("momentum_signed")
+        mom_txt = ("abstained" if (opp.get("momentum_abstained") or mom is None)
+                   else f"{mom:+.0f} signed")
         print(f"    demand {opp.get('demand_score', 0):.0f}  −  supply {opp.get('supply_score', 0):.0f}"
               f"  (imbalance {opp.get('imbalance', 0):+.0f}),  momentum {mom_txt}")
         print()
@@ -126,18 +149,48 @@ def print_niche_summary(meta: dict, df: pd.DataFrame):
     if meta.get("span_warning"):
         print(f"\n  ⚠️  {meta['span_warning']}")
 
-    medians = {
-        "views/hr":   meta.get("median_vph"),
-        "views":      meta.get("median_views"),
-        "engagement": meta.get("median_engagement"),
-    }
-    print("\n  Niche medians:")
-    for label, val in medians.items():
-        if val is not None:
-            if label == "engagement":
-                print(f"    {label:<12}: {val:.3%}")
-            else:
-                print(f"    {label:<12}: {val:,.1f}")
+    # Median AND top decile, because one number cannot describe a
+    # distribution this skewed. The GAP between them is the useful part:
+    # it says whether this is a market where a few videos take
+    # everything, or one where solid work reliably lands somewhere.
+    #
+    # The mean is deliberately NOT shown. On real data, removing a single
+    # video from a 291-video sample moved the mean view count by 69%
+    # while the median moved 0.9% — one viral upload makes the mean say
+    # something entirely different about a market that has not changed.
+    # P90 carries the same "what does winning look like" information and
+    # is stable.
+    rows = [
+        ("views/hr",   meta.get("median_vph"),        meta.get("p90_vph")),
+        ("views",      meta.get("median_views"),      meta.get("p90_views")),
+        ("engagement", meta.get("median_engagement"), meta.get("p90_engagement")),
+    ]
+    have_p90 = any(p is not None for _, _, p in rows)
+    print("\n  Niche profile:")
+    if have_p90:
+        print(f"    {'':<12}  {'typical':>12}  {'top 10%':>12}   spread")
+    for label, med, p90 in rows:
+        if med is None:
+            continue
+        fmt = (lambda v: f"{v:.3%}") if label == "engagement" else (lambda v: f"{v:,.1f}")
+        if p90 is None:
+            print(f"    {label:<12}: {fmt(med)}")
+            continue
+        ratio = (p90 / med) if med else 0
+        print(f"    {label:<12}: {fmt(med):>12}  {fmt(p90):>12}   {ratio:>5.1f}x")
+
+    if have_p90 and meta.get("median_views") and meta.get("p90_views"):
+        r = meta["p90_views"] / meta["median_views"]
+        if r >= 15:
+            read = ("winner-take-all — a few videos take almost everything, "
+                    "so being average earns close to nothing")
+        elif r >= 6:
+            read = ("top-heavy, which is normal for YouTube — breakouts "
+                    "clearly happen here")
+        else:
+            read = ("unusually flat — steady returns, but little evidence "
+                    "of big breakouts to aim at")
+        print(f"\n    Spread reading: {read}.")
 
     # Top-video table
     if not df.empty:
@@ -320,16 +373,51 @@ def _html_pillars(pillars) -> str:
             )
             continue
         color = _grade_color(p["grade"])
-        metric_bits = "".join(
-            f"<div class='metric-row'><span>{m}</span><span>{s:.0f}</span></div>"
-            for m, s in p.get("metrics", {}).items()
-        )
+        signed = p.get("signed_change")
+        is_momentum = (pname == "momentum" and signed is not None)
+
+        if is_momentum:
+            # Signed components read as plain multiples. "-74.2" beside a
+            # column of percentiles looks like a failing score when it
+            # actually means the quantity fell to about a fifth.
+            bits = []
+            for m, s in p.get("metrics", {}).items():
+                bits.append(f"<div class='metric-row'><span>{m}</span>"
+                            f"<span>{s:+.0f} &nbsp;<em>{signed_reading(s)}</em>"
+                            f"</span></div>")
+            metric_bits = "".join(bits)
+            # Centred bar: growth fills right of the zero line, decline
+            # fills left. A 0-100 bar has no zero point, so momentum 50
+            # ("nothing changed") looked identical to a mediocre score.
+            half = 90
+            mag = int(min(abs(signed), 100) / 100 * half)
+            if signed >= 0:
+                fill = (f"<div style='position:absolute;left:{half}px;width:{mag}px;"
+                        f"height:12px;background:{color};border-radius:0 4px 4px 0'></div>")
+            else:
+                fill = (f"<div style='position:absolute;left:{half-mag}px;width:{mag}px;"
+                        f"height:12px;background:{color};border-radius:4px 0 0 4px'></div>")
+            bar = (f"<div style='position:relative;width:{half*2}px;height:12px;"
+                   f"background:#e5e7eb;border-radius:4px'>{fill}"
+                   f"<div style='position:absolute;left:{half}px;width:2px;"
+                   f"height:12px;background:#6b7280'></div></div>"
+                   f"<div class='muted' style='font-size:.7rem;margin-top:2px'>"
+                   f"&#8592; decline &nbsp;|&nbsp; 0 = breakeven &nbsp;|&nbsp; growth &#8594;</div>")
+            score_cell = f"{signed:+.1f}"
+        else:
+            metric_bits = "".join(
+                f"<div class='metric-row'><span>{m}</span><span>{s:.0f}</span></div>"
+                for m, s in p.get("metrics", {}).items()
+            )
+            bar = (f"<div class='bar-bg'><div class='bar-fg' style='background:{color};"
+                   f"width:{int(p['score'] * 1.8)}px'></div></div>")
+            score_cell = f"{p['score']:.1f}"
+
         rows.append(
             f"<tr><td><strong>{pname}</strong></td>"
             f"<td><span class='badge' style='background:{color}'>{p['grade']}</span></td>"
-            f"<td>{p['score']:.1f}</td>"
-            f"<td><div class='bar-bg'><div class='bar-fg' style='background:{color};"
-            f"width:{int(p['score'] * 1.8)}px'></div></div>"
+            f"<td>{score_cell}</td>"
+            f"<td>{bar}"
             f"<div style='margin-top:4px'>{metric_bits}</div></td></tr>"
         )
     return ("  <div class='section-label'>Analyst detail</div>\n"
@@ -343,9 +431,10 @@ def _html_opportunity(result) -> str:
     opp = result.get("opportunity", {})
     if not opp:
         return ""
-    mom = opp.get("momentum_score")
+    mom = opp.get("momentum_signed")
     mom_txt = ("abstained (insufficient recent data)"
-               if (opp.get("momentum_abstained") or mom is None) else f"{mom:.0f}")
+               if (opp.get("momentum_abstained") or mom is None)
+               else f"{mom:+.0f} signed")
     return f"""  <h2>Opportunity (derived)</h2>
   <p class="meta">opportunity = 50 + (demand − supply)/2, nudged by momentum</p>
   <p><strong>Demand {opp.get('demand_score', 0):.0f}</strong> −
@@ -521,6 +610,56 @@ def _grade_emoji(grade: str) -> str:
 def _score_bar(score: float, width: int = 20) -> str:
     filled = round(score / 100 * width)
     return "█" * filled + "░" * (width - filled)
+
+
+def signed_reading(value: float) -> str:
+    """
+    Plain-language reading of a signed momentum component.
+
+    Marks the CLAMP explicitly. _signed_log saturates at +/-100, so a
+    component reported as -100 could be a 10x fall or a 500x one — on
+    real data an evergreen ratio of 0.0048 computes to -231 before
+    clamping. Printing a bare "10.0x down" claims a precision the number
+    does not have, so the clamp reads ">=".
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return ""
+    at_clamp = abs(v) >= 99.5
+    ratio = 10 ** (abs(v) / 100.0)
+    if abs(v) < 10:
+        return "flat"
+    direction = "up" if v > 0 else "down"
+    prefix = "\u2265" if at_clamp else ""
+    return f"{prefix}{ratio:.1f}x {direction}"
+
+
+def _signed_bar(signed: float, width: int = 20) -> str:
+    """
+    Centred bar for a value that runs -100..+100 with a MEANINGFUL ZERO.
+
+    A 0-100 bar cannot express momentum. Momentum 50 means "nothing is
+    changing", which is the normal, healthy, expected state — but a
+    half-filled bar reads as mediocre, and the eye compares it directly
+    against demand 50 and supply 50, which mean something completely
+    different. The bar needs a zero point, so it gets one: growth fills
+    rightward from the centre, decline fills leftward.
+
+        -50 ........  ████│        ........
+          0 ........      │        ........
+        +50 ........      │████    ........
+    """
+    half = width // 2
+    signed = max(-100.0, min(100.0, float(signed)))
+    cells = round(abs(signed) / 100 * half)
+    if signed >= 0:
+        left = "░" * half
+        right = "█" * cells + "░" * (half - cells)
+    else:
+        left = "░" * (half - cells) + "█" * cells
+        right = "░" * half
+    return f"{left}│{right}"
 
 
 def _fmt_date(iso_str) -> str:

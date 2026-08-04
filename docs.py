@@ -163,6 +163,34 @@ WORKFLOWS = [
         "tint": "free",
     },
     {
+        "name": "See which themes actually last",
+        "aim": "Is this format durable, or was it a moment?",
+        "chain": [("key", "3", "discover"), ("arrow",),
+                  ("file", "breakouts/by_era.md")],
+        "note": "Breakouts split into 0-90d / 90-180d / 180-365d, each "
+                "ranked against its own contemporaries. A theme appearing "
+                "in all three eras is a **format**; one appearing only in "
+                "the newest is a news cycle. Fixes an age bias where "
+                "recent videos took 43 of the top 50 and the single "
+                "biggest video in the dataset was invisible.",
+        "cost": "Free · slices the build you already have",
+        "tint": "free",
+    },
+    {
+        "name": "Mine the Shorts you filtered out",
+        "aim": "A third of every build is Shorts. What were they about?",
+        "chain": [("key", "3", "discover"), ("arrow",),
+                  ("file", "shorts/shorts.md")],
+        "note": "Subjects busy in short form but thin in long-form — "
+                "attention exists, nobody made the full version. "
+                "**Leads, not findings**: a Short's views come from the "
+                "feed, not from search, so short-form attention doesn't "
+                "prove anyone would search for a ten-minute version. "
+                "Written automatically; costs nothing extra.",
+        "cost": "Free · data was already collected",
+        "tint": "free",
+    },
+    {
         "name": "Find a repeatable format",
         "aim": "A series, not a one-off. At a small channel size this "
                "matters more than any single video decision here.",

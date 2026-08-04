@@ -53,8 +53,8 @@ from collections import Counter
 
 import pandas as pd
 
-from config import EXPORTS_DIR, SIGNALS_RECURSE_TOP
-from paths import export_dir_for
+from config import EXPORTS_DIR, SIGNALS_RECURSE_TOP, SIGNALS_MAX_SEEDS
+from paths import search_export_dir, export_dir_for
 from insights import _STOPWORDS, _tokenize
 
 
@@ -231,6 +231,10 @@ def harvest_autocomplete(seeds, alphabet=True, verbose=True, depth=1,
     """
     if isinstance(seeds, str):
         seeds = [seeds]
+    if len(seeds) > SIGNALS_MAX_SEEDS:
+        print(f"  Using the first {SIGNALS_MAX_SEEDS} of {len(seeds)} seeds "
+              f"(SIGNALS_MAX_SEEDS).")
+        seeds = seeds[:SIGNALS_MAX_SEEDS]
     counter = Counter()
     attempted = failed = 0
 
@@ -388,7 +392,7 @@ def export_intent_report(seeds, video_df, niche_name, alphabet=True,
         return {}
 
     gaps = find_intent_gaps(harvest, video_df)
-    out_dir = export_dir_for(EXPORTS_DIR, niche_name, "signals")
+    out_dir = search_export_dir(EXPORTS_DIR, niche_name)
     md_path = os.path.join(out_dir, f"{stem}.md")
     csv_path = os.path.join(out_dir, f"{stem}.csv")
 
@@ -457,7 +461,7 @@ def export_intent_report(seeds, video_df, niche_name, alphabet=True,
             "unserved": len(unserved)}
 
 
-def suggest_seeds(niche_name, max_clusters=6):
+def suggest_seeds(niche_name, max_clusters=SIGNALS_MAX_SEEDS):
     """
     Where autocomplete seeds should come from, in priority order.
 
@@ -518,7 +522,7 @@ def suggest_seeds(niche_name, max_clusters=6):
     return seeds, " + ".join(notes)
 
 
-def cluster_seeds(niche_name, max_clusters=10):
+def cluster_seeds(niche_name, max_clusters=SIGNALS_MAX_SEEDS):
     """
     Cluster topics ONLY, from the most recent discovery run.
 
@@ -673,7 +677,7 @@ def export_reddit_report(subreddits, video_df, niche_name,
         return {}
 
     signals = find_early_signals(all_posts, video_df)
-    out_dir = export_dir_for(EXPORTS_DIR, niche_name, "signals")
+    out_dir = search_export_dir(EXPORTS_DIR, niche_name)
     md_path = os.path.join(out_dir, "reddit_signals.md")
     csv_path = os.path.join(out_dir, "reddit_signals.csv")
     pd.DataFrame(signals).to_csv(csv_path, index=False)

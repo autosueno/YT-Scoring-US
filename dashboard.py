@@ -102,12 +102,42 @@ def _pillar_card(name, pillar):
     score = pillar.get("score")
     grade = pillar.get("grade", "?")
     colour = _score_colour(score)
-    parts = [f"""<div class="pillar">
+    signed = pillar.get("signed_change")
+    is_momentum = (name == "momentum" and signed is not None)
+
+    if is_momentum:
+        # Momentum needs a ZERO POINT. A 0-100 fill bar makes momentum 50
+        # — which means "nothing has changed", the normal state — look
+        # like a mediocre score, and invites comparison against demand 50
+        # and supply 50, which mean something entirely different. Growth
+        # fills right of centre, decline fills left.
+        mag = min(abs(float(signed)), 100) / 2.0
+        side = (f"left:50%;width:{mag}%;border-radius:0 3px 3px 0"
+                if signed >= 0 else
+                f"left:{50-mag}%;width:{mag}%;border-radius:3px 0 0 3px")
+        bar = (f'<div class="bar-track" style="position:relative">'
+               f'<div class="bar-fill" style="position:absolute;{side};'
+               f'background:{colour}"></div>'
+               f'<div style="position:absolute;left:50%;width:2px;height:100%;'
+               f'background:#9a9aa4"></div></div>'
+               f'<div style="font-size:10px;color:#8a8a94;margin-top:3px">'
+               f'&#8592; decline &nbsp;|&nbsp; 0 = breakeven &nbsp;|&nbsp; growth &#8594;</div>')
+        headline = (f'<div class="score" style="color:{colour}">{signed:+.1f}'
+                    f'<span style="font-size:14px;color:#6e6e78;font-weight:600">'
+                    f' signed [{grade}]</span></div>')
+    else:
+        bar = (f'<div class="bar-track"><div class="bar-fill" '
+               f'style="width:{min(100,max(0,score or 0))}%;'
+               f'background:{colour}"></div></div>')
+        headline = (f'<div class="score" style="color:{colour}">'
+                    f'{score if score is not None else "—"}'
+                    f'<span style="font-size:14px;color:#6e6e78;font-weight:600">'
+                    f'/100 [{grade}]</span></div>')
+
+    parts = [f'''<div class="pillar">
       <div class="name">{html.escape(name)}</div>
-      <div class="score" style="color:{colour}">{score if score is not None else '—'}
-        <span style="font-size:14px;color:#6e6e78;font-weight:600">/100 [{grade}]</span></div>
-      <div class="bar-track"><div class="bar-fill" style="width:{min(100,max(0,score or 0))}%;
-           background:{colour}"></div></div>"""]
+      {headline}
+      {bar}''']
     for gname, g in (pillar.get("groups") or {}).items():
         if isinstance(g, dict):
             gs, gg, gw = g.get("score"), g.get("grade", "?"), g.get("weight")
@@ -115,8 +145,18 @@ def _pillar_card(name, pillar):
             parts.append(f'<div class="group"><span>{html.escape(str(gname))}</span>'
                         f'<span class="w">{gs} [{gg}]{wtxt}</span></div>')
     for mname, mval in (pillar.get("metrics") or {}).items():
+        if is_momentum:
+            try:
+                from report import signed_reading
+                v = float(mval)
+                shown = (f"{v:+.0f} <span style='color:#8a8a94'>"
+                         f"{signed_reading(v)}</span>")
+            except (TypeError, ValueError, ImportError):
+                shown = html.escape(str(mval))
+        else:
+            shown = html.escape(str(mval))
         parts.append(f'<div class="metric-row"><span>{html.escape(str(mname))}</span>'
-                    f'<span>{mval}</span></div>')
+                    f'<span>{shown}</span></div>')
     parts.append("</div>")
     return "\n".join(parts)
 

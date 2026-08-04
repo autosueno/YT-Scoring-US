@@ -85,6 +85,18 @@ Preset 2 covers the niche broadly, about a minute. Preset 5 is sharper and takes
 
 The only **measured** demand figure the engine produces. Everywhere else `views_per_hour` is a lifetime average, so a video that did 400k views in its first week and nothing since reports a healthy number forever. Two snapshots give actual views gained — which separates **still being watched** from **finished months ago**. Needs two builds of the same niche, days apart.  _Free · reads the history/ folder_
 
+**See which themes actually last** — Is this format durable, or was it a moment?
+
+    [3] discover → `breakouts/by_era.md`
+
+Breakouts split into 0-90d / 90-180d / 180-365d, each ranked against its own contemporaries. A theme appearing in all three eras is a **format**; one appearing only in the newest is a news cycle. Fixes an age bias where recent videos took 43 of the top 50 and the single biggest video in the dataset was invisible.  _Free · slices the build you already have_
+
+**Mine the Shorts you filtered out** — A third of every build is Shorts. What were they about?
+
+    [3] discover → `shorts/shorts.md`
+
+Subjects busy in short form but thin in long-form — attention exists, nobody made the full version. **Leads, not findings**: a Short's views come from the feed, not from search, so short-form attention doesn't prove anyone would search for a ten-minute version. Written automatically; costs nothing extra.  _Free · data was already collected_
+
 **Find a repeatable format** — A series, not a one-off. At a small channel size this matters more than any single video decision here.
 
     [3] discover → `breakouts/breakout_clusters.csv` → sort by unique_channels
