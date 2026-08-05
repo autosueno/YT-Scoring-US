@@ -49,7 +49,8 @@ from config import (
     SEO_TOP_N, CLUSTER_WEAK_WORDS,
 )
 from insights import _STOPWORDS
-from paths import safe_name, export_dir_for
+from paths import export_dir_for
+from paths import named as _named
 
 
 HASHTAG_RE = re.compile(r"#(\w{2,40})")
@@ -245,7 +246,7 @@ def export_tag_list(df, niche_name, out_dir=None) -> str:
     tags, reasons = result["tags"], result["reasons"]
     out_dir = out_dir or export_dir_for(EXPORTS_DIR, niche_name, "packaging")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "tags.md")
+    path = os.path.join(out_dir, _named(niche_name, "tags.md"))
 
     L = [f"# Suggested tags — {niche_name}", ""]
     L.append("A ready-to-use tag set for a video on this topic, blended "
@@ -571,7 +572,7 @@ def download_thumbnails(df, niche_name, n=12, make_contact_sheet=True,
                 y = pad + (i // cols) * (th + label_h + pad)
                 sheet_img.paste(im, (x, y))
                 draw.text((x + 3, y + th + 3), f"#{i+1}", fill=(200, 200, 205))
-            sheet = os.path.join(out_dir, "_contact_sheet.jpg")
+            sheet = os.path.join(out_dir, _named(niche_name, "contact_sheet.jpg"))
             sheet_img.save(sheet, quality=88)
         except ImportError:
             print("    (Pillow not installed — skipping contact sheet)")
@@ -706,7 +707,7 @@ def export_seo_report(df, clusters, niche_name, fetch_thumbnails=True,
     out_dir = out_dir_override or export_dir_for(EXPORTS_DIR, niche_name,
                                                  "packaging")
     os.makedirs(out_dir, exist_ok=True)
-    stem = os.path.join(out_dir, "seo")
+    stem = os.path.join(out_dir, _named(niche_name, "seo"))
     paths = {"md": stem + ".md", "json": stem + ".json"}
 
     with open(paths["json"], "w", encoding="utf-8") as f:

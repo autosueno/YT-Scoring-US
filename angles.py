@@ -44,6 +44,7 @@ import pandas as pd
 
 from config import EXPORTS_DIR, EXCLUDE_SHORTS_UNDER_SECONDS
 from paths import export_dir_for
+from paths import named as _named
 
 
 # How many videos to shortlist for transcript study. Five is the number
@@ -103,7 +104,7 @@ def write_angles_prompt(scored_df, clusters, niche_name,
     """
     df = _drop_shorts(scored_df)
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "prompts")
-    path = os.path.join(out_dir, "angles_prompt.md")
+    path = os.path.join(out_dir, _named(niche_name, "angles_prompt.md"))
 
     L = [f"# Angle generation — {niche_name}", ""]
     L.append("## How to use this")
@@ -266,7 +267,7 @@ def write_transcript_study(scored_df, niche_name,
     df = _drop_shorts(scored_df)
     out_dir = out_dir or export_dir_for(EXPORTS_DIR, niche_name, "prompts")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "transcript_study.md")
+    path = os.path.join(out_dir, _named(niche_name, "transcript_study.md"))
 
     rank_col = "outlier_ratio" if "outlier_ratio" in df.columns else "breakout_score"
     pool = df

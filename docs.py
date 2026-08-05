@@ -151,7 +151,7 @@ WORKFLOWS = [
     },
     {
         "name": "Compare niches against each other",
-        "aim": "Which of these markets is actually worth entering?",
+        "aim": "How do these markets differ?",
         "chain": [("key", "10", "compare"), ("arrow",),
                   ("file", "_compare/compare_365d.md")],
         "note": "Every built niche in one table, sorted by spread — the "
@@ -160,6 +160,25 @@ WORKFLOWS = [
                 "instead of the assumed ones. Reads stored metadata, so "
                 "no quota and no recompute.",
         "cost": "Free · reads what is already on disk",
+        "tint": "free",
+    },
+    {
+        "name": "Decide which niche to break into",
+        "aim": "Of these markets, which one should I actually enter?",
+        "chain": [("key", "10", "compare"), ("arrow",),
+                  ("file", "_compare/<a>_vs_<b>_365d_verdict.html")],
+        "note": "Offered at the end of option 10. The table above says how "
+                "niches DIFFER; this says which to enter, which needs facts "
+                "metadata cannot hold — so it re-reads `videos.csv`. "
+                "Measures **whether a small channel ever wins here**, "
+                "whether the floor is hobbyists or failed professionals, "
+                "whether videos keep earning after six months, how long a "
+                "winning video runs, and what a hit is worth. Ad rates "
+                "come from `rpm_rates.csv` (edit it in Excel); the ranking "
+                "runs at the low, mid and high end of each band and tells "
+                "you if the answer flips. Still no quota — seconds per "
+                "niche instead of instant.",
+        "cost": "Free · reads videos.csv from disk",
         "tint": "free",
     },
     {
@@ -652,8 +671,20 @@ def render_readme():
     L.append("    prompts/               files to paste into an AI")
     L.append("    signals/               autocomplete + Reddit")
     L.append("exports/_channels/<name>/  channel teardowns")
+    L.append("exports/_compare/          niche-vs-niche verdicts")
     L.append("history/<niche>/<date>/    archived previous builds")
     L.append("```")
+    L.append("")
+    L.append("Every file carries the name of what it describes — "
+             "`ancient_history_365d_statistics.csv`, not `statistics.csv`. "
+             "The folder tree already separates subjects, but the folder "
+             "does not travel with the file: attach two niches' exports to "
+             "one message and the second overwrites the first, and Excel "
+             "refuses to open two workbooks of the same name at all. The "
+             "window is included because a 365d and a 90d build of one "
+             "niche collide just as badly as two different niches. "
+             "Datasets built before this change keep loading under their "
+             "old names and are renamed once at startup.")
     L.append("")
     L.append(f"## Modules ({len(mods)})")
     L.append("")

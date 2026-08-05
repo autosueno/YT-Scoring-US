@@ -37,6 +37,7 @@ import pandas as pd
 
 from config import EXPORTS_DIR
 from paths import export_dir_for, shorts_path
+from paths import named as _named
 from insights import _STOPWORDS, _tokenize
 
 
@@ -110,11 +111,11 @@ def export_shorts_report(niche_name, long_df=None) -> dict:
         return {"error": "no_shorts"}
 
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "shorts")
-    csv_path = os.path.join(out_dir, "shorts.csv")
+    csv_path = os.path.join(out_dir, _named(niche_name, "shorts.csv"))
     shorts_df.to_csv(csv_path, index=False)
 
     gaps = find_underserved(shorts_df, long_df)
-    md_path = os.path.join(out_dir, "shorts.md")
+    md_path = os.path.join(out_dir, _named(niche_name, "shorts.md"))
 
     L = [f"# Shorts signal — {niche_name}", ""]
     L.append(f"**{len(shorts_df):,} Shorts** were collected and filtered out "

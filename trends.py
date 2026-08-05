@@ -38,6 +38,7 @@ import pandas as pd
 
 from config import EXPORTS_DIR, HISTORY_DIR
 from paths import export_dir_for, safe_name
+from paths import named as _named
 from insights import _STOPWORDS, _tokenize
 
 
@@ -237,7 +238,7 @@ def export_trend_report(niche_name, current_df) -> dict:
         return {"error": "incomparable"}
 
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "trends")
-    md_path = os.path.join(out_dir, "since_last_build.md")
+    md_path = os.path.join(out_dir, _named(niche_name, "since_last_build.md"))
 
     L = [f"# What changed — {niche_name}", ""]
     L.append(f"Comparing the current dataset against the build archived on "
@@ -358,7 +359,7 @@ def export_trend_report(niche_name, current_df) -> dict:
 
     paths = {"report": md_path}
     if g is not None and len(g):
-        csv_path = os.path.join(out_dir, "measured_growth.csv")
+        csv_path = os.path.join(out_dir, _named(niche_name, "measured_growth.csv"))
         g.to_csv(csv_path, index=False)
         paths["growth_csv"] = csv_path
     paths["_comparison"] = cmp

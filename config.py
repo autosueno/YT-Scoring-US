@@ -246,6 +246,23 @@ REGION_CODES = ["US"]
 REGION_STRATEGY = "first"
 
 # ============================================================
+# RATE-METRIC FLOORS
+# ============================================================
+# A ratio needs a denominator large enough to divide by. YouTube reports
+# view_count as 0 on some videos while like_count survives; with views
+# clipped to 1 that produced engagement rates in the thousands (one real
+# build peaked at 28,620 — i.e. 2,862,000%). Below these floors the rate
+# columns are set to NaN rather than to a fabricated number, because a
+# video with three views has no measurable engagement rate.
+#
+# 50 views is where one like reads as 2% — roughly the observed median —
+# so a single interaction no longer dominates the result.
+MIN_VIEWS_FOR_RATE = 50
+
+# comment_to_like_ratio divides by likes, so it needs its own floor.
+MIN_LIKES_FOR_RATIO = 10
+
+# ============================================================
 # MULTI-KEY API ROTATION
 # ============================================================
 # .env may define up to MAX_API_KEYS keys: YOUTUBE_API_KEY_1,

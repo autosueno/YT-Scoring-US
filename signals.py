@@ -55,6 +55,7 @@ import pandas as pd
 
 from config import EXPORTS_DIR, SIGNALS_RECURSE_TOP, SIGNALS_MAX_SEEDS
 from paths import search_export_dir, export_dir_for
+from paths import named as _named
 from insights import _STOPWORDS, _tokenize
 
 
@@ -678,8 +679,8 @@ def export_reddit_report(subreddits, video_df, niche_name,
 
     signals = find_early_signals(all_posts, video_df)
     out_dir = search_export_dir(EXPORTS_DIR, niche_name)
-    md_path = os.path.join(out_dir, "reddit_signals.md")
-    csv_path = os.path.join(out_dir, "reddit_signals.csv")
+    md_path = os.path.join(out_dir, _named(niche_name, "reddit_signals.md"))
+    csv_path = os.path.join(out_dir, _named(niche_name, "reddit_signals.csv"))
     pd.DataFrame(signals).to_csv(csv_path, index=False)
 
     now = time.time()

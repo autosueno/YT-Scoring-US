@@ -44,7 +44,8 @@ import math
 import isodate
 import pandas as pd
 
-from config import MIN_LATIN_SCRIPT_RATIO
+from config import (MIN_LATIN_SCRIPT_RATIO, MIN_VIEWS_FOR_RATE,
+                    MIN_LIKES_FOR_RATIO)
 
 
 # ============================================================
@@ -76,10 +77,30 @@ def demand_features(df):
     df["views_per_day"] = df["view_count"] / (df["hours_since_upload"] / 24)
 
     # Engagement intensity
-    df["engagement_rate"] = interactions / views
+    #
+    # A rate needs a denominator big enough to divide by. YouTube reports
+    # view_count as 0 on some videos while like_count survives, and
+    # views is clipped to 1 above, so those produce rates in the
+    # thousands: one real build carried engagement_rate up to 28,620 —
+    # 2,862,000% — with like_rate and comment_rate showing the identical
+    # skewness of 53.6, because the same handful of videos poisoned all
+    # three. Mean, Std and CV for those columns were meaningless.
+    #
+    # NaN rather than a clamp. Clamping to 1.0 would put a fabricated
+    # value beside real ones and make a 3-view video look like the most
+    # engaging content in the niche. A video with almost no views has no
+    # measurable engagement rate, and saying so is the honest answer —
+    # every consumer of these columns (statistics.py, grader.py) already
+    # drops NaN before computing anything.
+    #
+    # The floor is where a single interaction stops dominating: at 50
+    # views one like reads as 2%, about the observed median, so noise no
+    # longer swamps signal.
+    measurable = df["view_count"] >= MIN_VIEWS_FOR_RATE
+    df["engagement_rate"] = (interactions / views).where(measurable)
     df["engagement_per_hour"] = interactions / df["hours_since_upload"]
-    df["like_rate"] = df["like_count"] / views
-    df["comment_rate"] = df["comment_count"] / views
+    df["like_rate"] = (df["like_count"] / views).where(measurable)
+    df["comment_rate"] = (df["comment_count"] / views).where(measurable)
 
     # engagement_velocity: how fast *engaged* views accumulate
     # (reach speed weighted by how engaging the video is). Distinct from
@@ -88,7 +109,12 @@ def demand_features(df):
 
     # comment_to_like_ratio: discussion vs. approval. High values flag
     # debate/controversy/community rather than passive liking.
-    df["comment_to_like_ratio"] = df["comment_count"] / df["like_count"].clip(lower=1)
+    # Same class of bug, different denominator: like_count clipped to 1
+    # turns a video with 0 likes and 40 comments into a ratio of 40.
+    # Suppressed below a floor for the same reason as the rates above.
+    df["comment_to_like_ratio"] = (
+        df["comment_count"] / df["like_count"].clip(lower=1)
+    ).where(df["like_count"] >= MIN_LIKES_FOR_RATIO)
 
     # "returning interest" proxy: commenters are more invested than likers,
     # so a high comment share is a proxy for durable/returning interest.

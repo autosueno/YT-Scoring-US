@@ -123,6 +123,27 @@ class ApiKeyManager:
         # cross a seed's key boundary when searching may not.
         self._unchained = False
 
+        # Restore today's known-dead keys. Quota is Google's and lasts a
+        # Pacific day; our counters lasted only this process, so every
+        # launch used to rediscover the same dead keys by walking into
+        # them. See quota_state.py for why deadness is restored but the
+        # unit estimate is not trusted.
+        try:
+            import quota_state
+            dead, used, note = quota_state.load(self._keys)
+            self._dead = dead
+            self._used = used
+            self._state_note = note
+            if note:
+                print(f"  {note}")
+        except Exception:
+            self._state_note = None
+        # Start on a key that is actually alive, rather than on #1 by
+        # position and discovering it is spent one request later.
+        first = self._first_live()
+        if first is not None:
+            self._index = first
+
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
@@ -240,6 +261,7 @@ class ApiKeyManager:
         n_res = self.total_keys - n_build
         if n_seeds <= 0 or not n_build:
             return "No build keys available."
+        n_live = sum(1 for i in order if not self._dead[i])
         per_seed = n_build // n_seeds
         lines = [f"  Key plan: {self.total_keys} keys — {n_build} for the "
                  f"build, {n_res} reserved for grading."]
@@ -254,6 +276,18 @@ class ApiKeyManager:
             lines.append(f"  ⚠️  {n_seeds} seeds but only {n_build} build "
                          f"keys — seeds {n_build + 1}+ SHARE keys with "
                          f"earlier seeds and will find them spent.")
+        # Counting configured keys is what made the old forecast fiction.
+        # If today has already spent most of them, say so BEFORE the
+        # build commits to a target it cannot reach.
+        if n_live < n_build:
+            lines.append(f"  ⚠️  Only {n_live} of {n_build} build keys are "
+                         f"live today — the rest were spent earlier in "
+                         f"this quota day.")
+            if n_live < n_seeds:
+                lines.append(f"      That is fewer than the {n_seeds} seeds, "
+                             f"so some seeds will be skipped. A partial "
+                             f"build is thinner AND differently shaped than "
+                             f"a full one; consider waiting for the reset.")
         return "\n".join(lines)
 
     def use_key_for_seed(self, seed_index: int, n_seeds: int = None) -> bool:
@@ -494,6 +528,7 @@ class ApiKeyManager:
                 if not _is_quota_error(err):
                     raise
                 self._dead[self._index] = True
+                self._persist_state()
                 nxt = self._first_live(prefer_from=self._index + 1)
 
                 # The percentage is SESSION-LOCAL — units spent by THIS
@@ -543,6 +578,14 @@ class ApiKeyManager:
 
     def _unchained_ok(self) -> bool:
         return bool(getattr(self, "_unchained", False))
+
+    def _persist_state(self):
+        """Record deadness for the rest of this quota day. Best effort."""
+        try:
+            import quota_state
+            quota_state.save(self._keys, self._dead, self._used)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Private

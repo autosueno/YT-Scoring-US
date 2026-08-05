@@ -59,7 +59,8 @@ from config import (
     BREAKOUT_TIERS, BREAKOUT_TIER_MIN_VIDEOS, BREAKOUT_MIN_VIEWS_LADDER,
 )
 from insights import _STOPWORDS, _tokenize
-from paths import safe_name, export_dir_for
+from paths import export_dir_for
+from paths import named as _named
 
 
 # ============================================================
@@ -387,7 +388,7 @@ def export_eras(df: pd.DataFrame, niche_name: str) -> dict:
     if not eras:
         return {}
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "breakouts")
-    md_path = os.path.join(out_dir, "by_era.md")
+    md_path = os.path.join(out_dir, _named(niche_name, "by_era.md"))
 
     L = [f"# Breakouts by era — {niche_name}", ""]
     L.append("Videos ranked against their own contemporaries rather than "
@@ -454,7 +455,7 @@ def export_eras(df: pd.DataFrame, niche_name: str) -> dict:
                          "topic": c["topic"], "cluster_score": c["cluster_score"],
                          "videos": c["videos"],
                          "unique_channels": c["unique_channels"]})
-    csv_path = os.path.join(out_dir, "clusters_by_era.csv")
+    csv_path = os.path.join(out_dir, _named(niche_name, "clusters_by_era.csv"))
     if rows:
         pd.DataFrame(rows).to_csv(csv_path, index=False)
 
@@ -485,7 +486,7 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
     slim.insert(0, "rank", range(1, len(slim) + 1))
 
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "breakouts")
-    stem = os.path.join(out_dir, "breakout")
+    stem = os.path.join(out_dir, _named(niche_name, "breakout"))
     paths = {
         "json":         stem + ".json",
         "csv":          stem + ".csv",

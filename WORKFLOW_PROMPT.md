@@ -80,11 +80,17 @@ Terms climbing fast on Reddit but thin on YouTube. **Treat these as leads to che
 
 Preset 2 covers the niche broadly, about a minute. Preset 5 is sharper and takes about two: **what people search around the topics already winning**. Separate files, so run both.  _Free · 1–3 min depending on preset_
 
-**Compare niches against each other** — Which of these markets is actually worth entering?
+**Compare niches against each other** — How do these markets differ?
 
     [10] compare → `_compare/compare_365d.md`
 
 Every built niche in one table, sorted by spread — the climb from ordinary to good. With five or more niches it derives spread thresholds from **your measured data** instead of the assumed ones. Reads stored metadata, so no quota and no recompute.  _Free · reads what is already on disk_
+
+**Decide which niche to break into** — Of these markets, which one should I actually enter?
+
+    [10] compare → `_compare/<a>_vs_<b>_365d_verdict.html`
+
+Offered at the end of option 10. The table above says how niches DIFFER; this says which to enter, which needs facts metadata cannot hold — so it re-reads `videos.csv`. Measures **whether a small channel ever wins here**, whether the floor is hobbyists or failed professionals, whether videos keep earning after six months, how long a winning video runs, and what a hit is worth. Ad rates come from `rpm_rates.csv` (edit it in Excel); the ranking runs at the low, mid and high end of each band and tells you if the answer flips. Still no quota — seconds per niche instead of instant.  _Free · reads videos.csv from disk_
 
 **See what actually moved** — Is this niche going anywhere since you last looked?
 

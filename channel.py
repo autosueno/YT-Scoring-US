@@ -52,6 +52,7 @@ from config import (
     EXCLUDE_SHORTS_UNDER_SECONDS,
 )
 from paths import channel_export_dir
+from paths import named as _named
 from insights import _STOPWORDS, _tokenize
 
 
@@ -634,7 +635,7 @@ def export_channel_report(df, profile, tracker=None) -> dict:
     paths = {}
 
     # Full catalogue as data.
-    csv_path = os.path.join(root, "catalog.csv")
+    csv_path = os.path.join(root, _named(name, "catalog.csv"))
     df.to_csv(csv_path, index=False)
     paths["catalog"] = csv_path
 
@@ -871,7 +872,7 @@ def export_channel_report(df, profile, tracker=None) -> dict:
              "pattern, not the list.")
     L.append("")
 
-    md_path = os.path.join(root, "teardown.md")
+    md_path = os.path.join(root, _named(name, "teardown.md"))
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
     paths["teardown"] = md_path
@@ -880,7 +881,7 @@ def export_channel_report(df, profile, tracker=None) -> dict:
     try:
         import timing
         t = timing.build_timing_report(df)
-        tp = os.path.join(root, "posting_times.md")
+        tp = os.path.join(root, _named(name, "posting_times.md"))
         with open(tp, "w", encoding="utf-8") as f:
             f.write("\n".join(timing.render_timing_markdown(t)))
         paths["posting_times"] = tp
@@ -908,7 +909,7 @@ def export_channel_report(df, profile, tracker=None) -> dict:
         thumb_dir = os.path.join(root, "thumbnails")
         items = _ts._download_thumbnails(picked, thumb_dir)
         sheet = _ts._build_contact_sheet(
-            items, os.path.join(thumb_dir, "_contact_sheet.jpg"),
+            items, os.path.join(thumb_dir, _named(name, "contact_sheet.jpg")),
             header_text=f"{name} — top {len(picked)} thumbnails")
         if sheet:
             paths["thumbnails"] = sheet

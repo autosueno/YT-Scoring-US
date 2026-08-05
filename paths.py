@@ -140,6 +140,111 @@ def display_name(niche_name: str) -> str:
     return f"{base} ({win} window)" if win else base
 
 
+# ============================================================
+# SUBJECT-NAMESPACED FILENAMES
+# ============================================================
+# Every file carries the name of what it describes.
+#
+# The folder tree already separates subjects, so this looks redundant on
+# disk — and on disk it is. It stops mattering the moment a file LEAVES
+# the tree. Two niches both produce "statistics.csv"; attach them to the
+# same message and the second overwrites the first, and Excel refuses to
+# open two workbooks of the same name at all. The folder that made the
+# name unique does not travel with the file.
+#
+# So the subject goes into the name itself:
+#     statistics.csv  ->  ancient_history_365d_statistics.csv
+#
+# The window is included because a 365d and a 90d build of one niche are
+# different datasets and collide just as badly as two different niches.
+
+def subject_slug(subject: str) -> str:
+    """'ancient_history@365d' -> 'ancient_history_365d'."""
+    base, win = split_window(subject)
+    slug = safe_name(base)
+    return f"{slug}_{safe_name(win)}" if win else slug
+
+
+def named(subject: str, filename: str) -> str:
+    """'shorts.csv' -> 'ancient_history_365d_shorts.csv'."""
+    slug = subject_slug(subject)
+    if not slug:
+        return filename
+    # Idempotent: never prefix a name that already carries the subject.
+    if filename.startswith(slug + "_"):
+        return filename
+    return f"{slug}_{filename}"
+
+
+def _subject_file(directory: str, subject: str, filename: str) -> str:
+    """
+    Where a subject's file lives, tolerating datasets built before the
+    naming change.
+
+    Prefers the namespaced name. Falls back to the bare legacy name if
+    that is what exists, so an old build keeps loading and does not have
+    to be re-collected — which would cost real quota for no gain. When
+    neither exists we are writing, so the new name wins.
+    """
+    new = os.path.join(directory, named(subject, filename))
+    if os.path.exists(new):
+        return new
+    legacy = os.path.join(directory, filename)
+    if os.path.exists(legacy):
+        return legacy
+    return new
+
+
+def export_file(exports_root: str, subject: str, section: str,
+                filename: str) -> str:
+    """Full path for one export, with the subject in the filename."""
+    return os.path.join(export_dir_for(exports_root, subject, section),
+                        named(subject, filename))
+
+
+def migrate_dataset_names(datasets_root: str, verbose: bool = True) -> int:
+    """
+    Rename legacy bare-named dataset files to the namespaced form.
+
+    Explicit rather than lazy: renaming as a side effect of a path
+    lookup would move a user's files during what reads like a read-only
+    operation. Run once at startup, prints what it did, and is safe to
+    run repeatedly — a file already renamed is skipped, and an existing
+    destination is never overwritten.
+    """
+    targets = ("videos.csv", "statistics.csv", "metadata.json",
+               "insights.json", "shorts.csv")
+    renamed = 0
+    if not os.path.isdir(datasets_root):
+        return 0
+    for root, _dirs, files in os.walk(datasets_root):
+        rel = os.path.relpath(root, datasets_root)
+        if rel == ".":
+            continue
+        parts = rel.split(os.sep)
+        # datasets/<niche>/<window>/ or the older datasets/<niche>/
+        if len(parts) == 2 and parts[1].endswith("d") and parts[1][:-1].isdigit():
+            subject = f"{parts[0]}{WINDOW_SEP}{parts[1]}"
+        elif len(parts) == 1:
+            subject = parts[0]
+        else:
+            continue
+        for fn in files:
+            if fn not in targets:
+                continue
+            dst = os.path.join(root, named(subject, fn))
+            if os.path.exists(dst):
+                continue
+            try:
+                os.rename(os.path.join(root, fn), dst)
+                renamed += 1
+                if verbose:
+                    print(f"  renamed {fn} -> {os.path.basename(dst)}")
+            except OSError:
+                pass
+    return renamed
+
+
 # Top-level export folders, grouped by WHAT KIND of thing is being
 # analysed rather than by name. Opening exports/ and seeing "finance"
 # next to "_channels" mixed one kind of object with a category; now the
@@ -164,25 +269,29 @@ def niche_dir(niche_name: str) -> str:
     return _nest(DATASETS_DIR, niche_name)
 
 
+# Each of these resolves through _subject_file, so a dataset written
+# before the naming change still loads from its bare filename while new
+# builds get the namespaced one. No re-collection, no lost quota.
+
 def shorts_path(niche_name: str) -> str:
     """Shorts live beside the main dataset, not inside it."""
-    return os.path.join(niche_dir(niche_name), "shorts.csv")
+    return _subject_file(niche_dir(niche_name), niche_name, "shorts.csv")
 
 
 def videos_path(niche_name: str) -> str:
-    return os.path.join(niche_dir(niche_name), "videos.csv")
+    return _subject_file(niche_dir(niche_name), niche_name, "videos.csv")
 
 
 def statistics_path(niche_name: str) -> str:
-    return os.path.join(niche_dir(niche_name), "statistics.csv")
+    return _subject_file(niche_dir(niche_name), niche_name, "statistics.csv")
 
 
 def metadata_path(niche_name: str) -> str:
-    return os.path.join(niche_dir(niche_name), "metadata.json")
+    return _subject_file(niche_dir(niche_name), niche_name, "metadata.json")
 
 
 def insights_path(niche_name: str) -> str:
-    return os.path.join(niche_dir(niche_name), "insights.json")
+    return _subject_file(niche_dir(niche_name), niche_name, "insights.json")
 
 
 # ============================================================
@@ -241,13 +350,13 @@ def topic_export_dir(exports_root: str, topic: str, section: str = None) -> str:
 
 
 def topic_videos_path(topic: str) -> str:
-    return os.path.join(topic_dir(topic), "videos.csv")
+    return _subject_file(topic_dir(topic), topic, "videos.csv")
 
 
 def topic_metadata_path(topic: str) -> str:
-    return os.path.join(topic_dir(topic), "metadata.json")
+    return _subject_file(topic_dir(topic), topic, "metadata.json")
 
 
 def topic_report_path(topic: str) -> str:
     """Where a topic's grade report is saved (report.py derives .csv/.html from this)."""
-    return os.path.join(topic_dir(topic), "report.json")
+    return _subject_file(topic_dir(topic), topic, "report.json")

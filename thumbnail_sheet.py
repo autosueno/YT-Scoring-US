@@ -48,6 +48,7 @@ import pandas as pd
 
 from config import EXPORTS_DIR, EXCLUDE_SHORTS_UNDER_SECONDS
 from paths import export_dir_for
+from paths import named as _named
 
 
 TARGET_COUNT = 20
@@ -283,7 +284,7 @@ def build_from_top_n(niche_name: str, n: int = TARGET_COUNT,
         header += f"  (excluded {dropped} Shorts)"
     elif not could_check:
         header += "  (could not verify all long-form: duration missing)"
-    sheet_path = _build_contact_sheet(items, os.path.join(out_dir, "_contact_sheet.jpg"),
+    sheet_path = _build_contact_sheet(items, os.path.join(out_dir, _named(niche_name, "contact_sheet.jpg")),
                                       header_text=header)
     return {
         "sheet": sheet_path,
@@ -319,7 +320,7 @@ def build_from_ids(niche_name: str, ids: List[str],
     header = f"{niche_name} — curated ({len(picked)} thumbnails)"
     if dropped:
         header += f"  (Shorts in source dropped before matching: {dropped})"
-    sheet_path = _build_contact_sheet(items, os.path.join(out_dir, "_contact_sheet.jpg"),
+    sheet_path = _build_contact_sheet(items, os.path.join(out_dir, _named(niche_name, "contact_sheet.jpg")),
                                       header_text=header)
     return {
         "sheet": sheet_path,
@@ -354,7 +355,7 @@ def write_curation_prompt(df: pd.DataFrame, niche_name: str,
     candidates = filtered.head(n_candidates)
 
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "prompts")
-    path = os.path.join(out_dir, "curation_prompt.md")
+    path = os.path.join(out_dir, _named(niche_name, "curation_prompt.md"))
 
     lines = [
         f"# Thumbnail curation prompt — {niche_name}",

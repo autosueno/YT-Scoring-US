@@ -809,6 +809,38 @@ def _dispatch_compare():
         print("  derived from evidence rather than assumption.")
     print(f"  → {res['md']}")
 
+    # The table above says how the niches DIFFER. It cannot say which to
+    # enter, because that needs the joint distribution (views crossed
+    # with channel size and with age) which metadata does not store. The
+    # verdict re-reads videos.csv to answer it. Offered rather than
+    # automatic: it is seconds of work per niche instead of instant.
+    deep = _dispatch_verdict(win)
+    if deep:
+        print(f"  → {deep}")
+
+
+def _dispatch_verdict(win):
+    """Optional deep pass at the end of option 10. Returns a path or None."""
+    import verdict as _v
+    keys = _v.available_niches(win)
+    if len(keys) < 2:
+        return None
+    print("\n  Deep entry verdict reads videos.csv for each niche and")
+    print("  answers which is worth breaking into — entry access, floor")
+    print("  composition, durability, effort, and revenue at three ad")
+    print("  rates. No API calls, a few seconds per niche.")
+    if input(f"  Run it for {len(keys)} niche(s)? [y/N]: ").strip().lower() != "y":
+        return None
+    out = _v.export_verdict(keys, window=win)
+    if out.get("error"):
+        print(f"  Could not build a verdict: {out['error']}")
+        return None
+    if out.get("skipped"):
+        print(f"  Skipped (no usable videos.csv): {', '.join(out['skipped'])}")
+    print(f"\n  {_v.verdict_text(out['result'])}")
+    print(f"  → {out['csv']}")
+    return out["html"]
+
 
 def _dispatch_trends():
     """
@@ -1122,6 +1154,20 @@ def interactive():
     other module still fails loudly, which is how you find bugs to fix.
     Ctrl-C still exits, as expected.
     """
+    # One-time rename of bare dataset filenames to the namespaced form.
+    # Explicit and at startup, rather than lazily inside a path lookup:
+    # moving a user's files as a side effect of what reads like a
+    # read-only call is the kind of surprise that costs trust. Safe to
+    # run every launch — already-renamed files are skipped and an
+    # existing destination is never overwritten.
+    try:
+        import paths as _pth
+        n = _pth.migrate_dataset_names(config.DATASETS_DIR, verbose=True)
+        if n:
+            print(f"  ({n} dataset file(s) renamed to include their niche)")
+    except Exception:
+        pass
+
     while True:
         try:
             choice = _menu()

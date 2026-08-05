@@ -31,7 +31,8 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from config import EXPORTS_DIR, TIMING_MIN_SAMPLES, AUDIENCE_TIMEZONE
-from paths import safe_name, export_dir_for
+from paths import export_dir_for
+from paths import named as _named
 import timing as timing_mod
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday",
@@ -314,7 +315,7 @@ def export_week_calendar(df, niche_name, tiers=None, out_dir=None) -> str:
 
     out_dir = out_dir or export_dir_for(EXPORTS_DIR, niche_name, "timing")
     os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "calendar_week.html")
+    path = os.path.join(out_dir, _named(niche_name, "calendar_week.html"))
     with open(path, "w", encoding="utf-8") as f:
         f.write("<!doctype html><html><head><meta charset='utf-8'>"
                 f"<title>{html.escape(niche_name)} — weekly calendar</title>"
@@ -402,7 +403,7 @@ def export_month_calendar(df, niche_name, event_info=None) -> str:
         f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}.</div>")
 
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "timing")
-    path = os.path.join(out_dir, "calendar_month.html")
+    path = os.path.join(out_dir, _named(niche_name, "calendar_month.html"))
     with open(path, "w", encoding="utf-8") as f:
         f.write("<!doctype html><html><head><meta charset='utf-8'>"
                 f"<title>{html.escape(niche_name)} — monthly calendar</title>"
