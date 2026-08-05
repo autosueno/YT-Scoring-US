@@ -130,8 +130,9 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
     """
     tracker = tracker or QuotaTracker()
 
-    # 1. Niche baseline
-    ensure_niche(api_key, niche_name, query=query, tracker=tracker)
+    # 1. Niche baseline. Keep the frame — the multi-window view needs
+    # the niche's own videos to slice, not just its stored baseline.
+    niche_df, _ = ensure_niche(api_key, niche_name, query=query, tracker=tracker)
 
     # 2. Topic data (always fresh — a grade should reflect right now)
     print(f"\nCollecting topic {topic!r}...")
@@ -156,6 +157,29 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
     # needs to know which window this data came from.
     result = grade_topic(topic_df, baseline, topic,
                          lookback_days=niche_lookback)
+
+    # Multi-window view. Free — it slices data already in memory — and
+    # answers what one grade cannot: strong recently, or strong across
+    # the whole period?
+    try:
+        from grader import grade_topic_multi
+        multi = grade_topic_multi(topic_df, niche_df, topic)
+        graded = [w for w in multi.get("windows", []) if not w.get("skipped")]
+        if len(graded) >= 2:
+            print("\n  Across time windows (each side cut to the same window):")
+            print(f"    {'window':>8}{'demand':>9}{'supply':>9}"
+                  f"{'opportunity':>13}{'grade':>7}")
+            for w in multi["windows"]:
+                if w.get("skipped"):
+                    print(f"    {w['window']:>7}d   skipped — {w['skipped'][:44]}")
+                else:
+                    print(f"    {w['window']:>7}d{w['demand']:>9.1f}"
+                          f"{w['supply']:>9.1f}{w['opportunity']:>13.1f}"
+                          f"{w['grade']:>7}")
+            if multi.get("reading"):
+                print(f"\n    {multi['reading']}")
+    except Exception as e:
+        print(f"  (multi-window view skipped: {type(e).__name__}: {e})")
 
     # 4. Report
     report.print_grade(result)
@@ -629,8 +653,9 @@ def _menu():
     print("  7) Search intent & Reddit signals (external demand)")
     print("  8) Tear down a single channel")
     print("  9) What changed since the last build")
-    print(" 10) Quit")
-    return input("\nChoose [1-10]: ").strip()
+    print(" 10) Compare all niches side by side")
+    print(" 11) Quit")
+    return input("\nChoose [1-11]: ").strip()
 
 
 def _dispatch(choice):
@@ -733,10 +758,56 @@ def _dispatch(choice):
         _dispatch_trends()
 
     elif choice == "10":
+        _dispatch_compare()
+
+    elif choice == "11":
         return "quit"
 
     else:
         print("Invalid choice.")
+
+
+def _dispatch_compare():
+    """
+    Option 10 — every built niche in one table.
+
+    No API calls and no recompute: each build already stored its own
+    medians and P90s, so this is a table lookup across datasets/.
+    """
+    import compare as _cmp
+    import pandas as pd
+    all_n = _cmp.list_all_niches()
+    if not all_n:
+        print("\n  No niches built yet.")
+        return
+    windows = sorted({_cmp.split_window(k)[1] or "?" for k, _ in all_n})
+    print(f"\n  {len(all_n)} build(s) across windows: {', '.join(windows)}")
+    print("  Spread is only comparable within one window — a 90d slice")
+    print("  always looks narrower because recent videos have not")
+    print("  finished separating yet.")
+    default = "365d" if "365d" in windows else windows[0]
+    win = input(f"  Window to compare [{default}]: ").strip() or default
+
+    res = _cmp.export_comparison(win)
+    if res.get("error"):
+        print(f"  Nothing built at the {win} window.")
+        return
+    df = _cmp.build_table(win)
+    print()
+    print(f"  {'niche':<26}{'videos':>8}{'typical':>10}{'top 10%':>11}{'spread':>9}")
+    for r in df.itertuples():
+        tv = f"{r.typical_views:,.0f}" if pd.notna(r.typical_views) else "—"
+        t10 = f"{r.top10_views:,.0f}" if pd.notna(r.top10_views) else "—"
+        sp = f"{r.spread:.1f}x" if pd.notna(r.spread) else "—"
+        v = f"{r.videos:,}" if r.videos else "—"
+        print(f"  {r.niche[:25]:<26}{v:>8}{tv:>10}{t10:>11}{sp:>9}")
+    print()
+    if res.get("calibrated"):
+        print("  Calibrated thresholds written to the report.")
+    else:
+        print("  Need 5+ niches at this window before thresholds can be")
+        print("  derived from evidence rather than assumption.")
+    print(f"  → {res['md']}")
 
 
 def _dispatch_trends():
@@ -1077,6 +1148,33 @@ def interactive():
             # exception here, and by content for the raw HttpError case
             # where the retry loop couldn't rescue us.
             err_repr = f"{type(e).__name__}: {e}"
+
+            # A dropped connection is a "check your wifi" problem, not a
+            # bug report. It used to print a 40-line traceback through
+            # httplib2 and googleapiclient internals, none of which tells
+            # the user anything they can act on.
+            network_signals = ("ServerNotFoundError", "getaddrinfo",
+                               "gaierror", "Connection aborted",
+                               "ConnectionResetError", "Temporary failure",
+                               "Name or service not known",
+                               "SSLError", "timed out", "TimeoutError")
+            if any(s in err_repr for s in network_signals):
+                print()
+                print("=" * 60)
+                print("⚠️  Could not reach YouTube — network problem, not a bug.")
+                print()
+                print("  Nothing was collected and no quota was spent; the")
+                print("  failure happened before any request landed.")
+                print()
+                print("  Check: are you online? On a VPN? Behind a firewall")
+                print("  that blocks googleapis.com?")
+                print()
+                print("  Re-run when the connection is back — the build")
+                print("  starts clean.")
+                print("=" * 60)
+                print()
+                return
+
             quota_signals = ("quotaExceeded", "rateLimitExceeded",
                              "dailyLimitExceeded", "userRateLimitExceeded",
                              "AllKeysExhausted", "Quota exceeded")

@@ -233,6 +233,41 @@ class Baseline:
 # FACTORY / CONVENIENCE
 # ============================================================
 
+def from_frame(df, label: str = "in-memory") -> Baseline:
+    """
+    Build a Baseline directly from a DataFrame, without touching disk.
+
+    Needed for multi-window grading, where each window needs its own
+    reference population. Writing three temporary niches to disk and
+    loading them back would work but leaves debris and is slower for no
+    benefit — the statistics and insights are computed the same way
+    either way.
+    """
+    import statistics as _sm
+    import insights as _ins
+
+    bl = Baseline.__new__(Baseline)
+    bl.niche_name = label
+    bl._stats = {}
+    bl._competition = {}
+    bl._content = {}
+    bl._supply = {}
+    bl._momentum = {}
+    bl._opportunity = {}
+
+    stats = _sm.generate_statistics(df)
+    for _, row in stats.iterrows():
+        bl._stats[str(row["Metric"])] = row.to_dict()
+
+    ins = _ins.generate_insights(df)
+    bl._competition = ins.get("competition_summary", {}) or {}
+    bl._content = ins.get("title_pattern_summary", {}) or {}
+    bl._supply = ins.get("supply_summary", {}) or {}
+    bl._momentum = ins.get("momentum_summary", {}) or {}
+    bl._opportunity = ins.get("opportunity_indicators", {}) or {}
+    return bl
+
+
 def load(niche_name: str) -> Baseline:
     """
     Load and return a Baseline for `niche_name`.

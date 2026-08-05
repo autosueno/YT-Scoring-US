@@ -726,9 +726,28 @@ def _collect_raw(api_key, query, max_results, order, tracker,
         # once KEY_PER_SEED actually engages with 2+ keys, which unit tests
         # with a single stub key never exercise.
         if KEY_PER_SEED and keys.total_keys > 1:
-            key_order = keys.build_key_order()
-            keys.use_key_for_seed(key_order[seed_index % len(key_order)])
-            print(f"  → seed {seed!r} assigned API key #{keys.current_key_number}")
+            # Pass the seed count so the key manager can deal each seed
+            # a PRIMARY plus its own backups by stride, rather than
+            # letting an over-spending seed fall through onto the next
+            # seed's primary and cascade the shortfall down the list.
+            if seed_index == 0:
+                # State the layout ONCE, before any quota is spent, so an
+                # under-supplied run (fewer than 2 build keys per seed) is
+                # visible at the top of the log instead of being inferred
+                # from a cascade thirty lines later.
+                print(keys.capacity_note(len(seeds)))
+            ok = keys.use_key_for_seed(seed_index, n_seeds=len(seeds))
+            chain = keys.seed_key_chain(seed_index, len(seeds))
+            if not ok:
+                print(f"  → seed {seed!r} SKIPPED — its keys ("
+                      + ", ".join(f"#{k + 1}" for k in chain)
+                      + ") are already spent.")
+                continue
+            backups = [k + 1 for k in chain[1:]]
+            note = (f" (backup: {', '.join('#' + str(b) for b in backups)})"
+                    if backups else " (NO BACKUP)")
+            print(f"  → seed {seed!r} assigned API key "
+                  f"#{keys.current_key_number}{note}")
 
         # Allocate this seed's share from a budget sized to fit EVERY
         # seed, not from whatever the earlier seeds left behind.
@@ -771,14 +790,30 @@ def _collect_raw(api_key, query, max_results, order, tracker,
         # units and save nothing. Interleaving costs nothing extra (a
         # videos.list call is 1 unit) and guarantees that every completed seed
         # is banked as usable rows.
+        #
+        # `unchained` lifts the seed's key wall for THIS step only. The
+        # wall stops a seed eating another seed's SEARCH budget; it was
+        # never meant to strand ids that cost 100 units/page to find
+        # behind an enrichment step costing 1 unit per 50. A real run
+        # gathered 654 ids and banked zero of them for want of ~14 units.
         if seed_ids:
             print(f"  Downloading metadata for {len(seed_ids)} videos "
                   f"from seed {seed!r}...")
-            rows, chans = _download_video_details(keys, seed_ids, tracker)
+            with keys.unchained():
+                rows, chans = _download_video_details(keys, seed_ids, tracker)
             video_rows.extend(rows)
             channel_ids.update(chans)
             collected = len(video_rows)
             print(f"    banked {len(rows)} rows — total {collected} unique")
+
+        # Re-point at this seed's own chain: unchained() may have left the
+        # cursor on a neighbouring key during enrichment, and the next
+        # seed sets its own chain anyway — but the guard above reads
+        # keys.exhausted, which must reflect global state, not this
+        # seed's.
+        if keys.live_keys == 0:
+            print("  All keys exhausted — stopping.")
+            break
 
     if not video_rows:
         print("⚠️  No videos collected (quota exhausted before any video "

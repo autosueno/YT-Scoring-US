@@ -39,6 +39,7 @@ from config import (
     OPPORTUNITY_MOMENTUM_INFLUENCE, OPPORTUNITY_INDICATOR_KEYS,
     VERDICT_HIGH, VERDICT_LOW, GRADE_THRESHOLDS, MOMENTUM_GRADE_THRESHOLDS,
     MOMENTUM_LOG_SCALE, MOMENTUM_COMPONENT_WEIGHTS,
+    TOPIC_GRADE_WINDOWS, TOPIC_GRADE_MIN_VIDEOS,
 )
 
 
@@ -52,6 +53,93 @@ def grade_topic(df, baseline: Baseline, topic: str,
     if df.empty:
         return _empty_result(topic, "topic")
     return _grade(df, baseline, topic, "topic", lookback_days)
+
+
+def grade_topic_multi(topic_df, niche_df, topic: str,
+                      windows=None, min_videos=None) -> dict:
+    """
+    Grade one topic at several time windows, each against the SAME
+    window of the niche.
+
+    Answers what a single grade cannot: is this strong recently, or
+    strong across the year? Reading the columns left to right:
+
+        90d high, 365d low   -> newly hot, no track record
+        90d low,  365d high  -> was strong, cooling
+        high at both         -> durable
+        low at both          -> not a market
+
+    Both sides are cut to the same window every time. Grading is
+    percentile-based, so a 90-day topic scored against a 365-day
+    baseline compares two different populations — the topic looks
+    artificially fresh and nothing in the result would reveal it.
+
+    Builds a fresh baseline per window rather than reusing the stored
+    one, because the stored baseline describes the full collection
+    period and would reintroduce exactly that mismatch.
+    """
+    import insights as _ins
+    from baseline import from_frame as _from_frame
+
+    windows = windows or TOPIC_GRADE_WINDOWS
+    min_videos = min_videos or TOPIC_GRADE_MIN_VIDEOS
+    if topic_df is None or niche_df is None or topic_df.empty or niche_df.empty:
+        return {}
+
+    t_days = _ins._days_since(topic_df)
+    n_days = _ins._days_since(niche_df)
+    out = {"topic": topic, "windows": []}
+
+    for w in sorted(windows):
+        t_sub = topic_df[(t_days <= w).values]
+        n_sub = niche_df[(n_days <= w).values]
+        entry = {"window": w,
+                 "topic_videos": int(len(t_sub)),
+                 "niche_videos": int(len(n_sub))}
+        if len(t_sub) < min_videos or len(n_sub) < min_videos:
+            entry["skipped"] = (
+                f"needs {min_videos}+ videos on both sides; have "
+                f"{len(t_sub)} topic / {len(n_sub)} niche")
+            out["windows"].append(entry)
+            continue
+        try:
+            bl = _from_frame(n_sub, f"{topic}@{w}d")
+            res = grade_topic(t_sub, bl, topic, lookback_days=w)
+            p = res.get("pillars") or {}
+            entry.update({
+                "skipped": None,
+                "opportunity": res.get("score"),
+                "grade": res.get("grade"),
+                "demand": (p.get("demand") or {}).get("score"),
+                "supply": (p.get("supply") or {}).get("score"),
+                "momentum": (p.get("momentum") or {}).get("signed_change"),
+                "verdict": res.get("verdict"),
+            })
+        except Exception as e:
+            entry["skipped"] = f"{type(e).__name__}: {e}"
+        out["windows"].append(entry)
+
+    graded = [w for w in out["windows"] if not w.get("skipped")]
+    if len(graded) >= 2:
+        first, last = graded[0], graded[-1]
+        d_short, d_long = first.get("demand"), last.get("demand")
+        if d_short is not None and d_long is not None:
+            delta = d_short - d_long
+            if delta >= 10:
+                out["reading"] = (
+                    "newly hot — much stronger over the recent window than "
+                    "across the year. You are early, but there is no track "
+                    "record yet that the interest lasts.")
+            elif delta <= -10:
+                out["reading"] = (
+                    "cooling — stronger across the year than recently. The "
+                    "audience showed up already and is thinning.")
+            else:
+                out["reading"] = (
+                    "steady — similar over the recent window and the full "
+                    "year. Whatever this is, it is not a spike.")
+            out["demand_delta"] = round(delta, 1)
+    return out
 
 
 def grade_niche(df, baseline: Baseline, niche: str,

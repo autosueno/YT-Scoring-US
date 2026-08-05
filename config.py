@@ -254,18 +254,61 @@ REGION_STRATEGY = "first"
 # rotates to the next and retries the same request; when ALL keys are
 # exhausted, collection stops gracefully and the pipeline continues with
 # whatever has been gathered so far (partial dataset, never a crash).
-MAX_API_KEYS = 7
+MAX_API_KEYS = 12
 
-# Assign one dedicated API key per seed (seed 1 -> key 1, seed 2 -> key 2...).
-# Guarantees a greedy first seed cannot consume the budget of later seeds.
-# If a seed exhausts its own key it falls back to any still-unused key, so
-# isolation costs no capacity. Set False for a single shared rotating pool.
+# Assign each seed its OWN primary key plus its OWN backup, dealt by
+# stride. With 12 keys, 2 reserved for grading (10 build keys) and 5 seeds:
+#
+#     seed 1 -> #1, #6        seed 4 -> #4, #9
+#     seed 2 -> #2, #7        seed 5 -> #5, #10
+#     seed 3 -> #3, #8        (#11, #12 untouched by builds)
+#
+# Seed 1 exhausting #1 moves to #6 — never to #2, which belongs to seed 2.
+# Backups per seed = floor(build_keys / n_seeds) - 1, so this layout needs
+# at least 2x as many build keys as seeds. At MAX_API_KEYS = 7 there were
+# only 5 build keys for 5 seeds: one key each, zero backups, and every
+# quota death cascaded onto the next seed's primary.
 KEY_PER_SEED = True
 
-# Keys held back from niche builds and used first for cheap operations
-# (topic grading, refreshes). A SOFT reserve: builds may still use them as
-# a last resort rather than failing. 0 disables.
+# What a seed does when BOTH of its own keys are spent.
+#
+#   True   the seed STOPS and the build moves to the next seed, which
+#          still has its own untouched pair. Isolation is real: an
+#          expensive seed can only ever damage itself.
+#
+#   False  the seed takes whatever key is live — the legacy cascade,
+#          where seed 1 walks #1 -> #2 -> #3 and starves everyone else.
+#
+# Cheap videos.list enrichment is exempt either way (see
+# ApiKeyManager.unchained): 1 unit per 50 videos is not worth losing a
+# search that already cost thousands.
+SEED_CHAIN_STRICT = True
+
+# Keys held back from niche builds for cheap operations: topic grading,
+# channel teardown, refreshes. At MAX_API_KEYS = 12 this is keys #11 and
+# #12. HARD by default during a build (see ALLOW_RESERVE_FALLBACK) — a
+# build cannot touch them, so option 2 always has a full day's quota.
+#
+# Note that autocomplete harvesting (signals.py) does NOT draw on this:
+# YouTube's suggest endpoint is unmetered and needs no key at all. The
+# reserve exists for the metered Data API operations.
 RESERVED_KEYS_FOR_TOPICS = 2
+
+# What happens when a build exhausts every non-reserved key.
+#
+#   False  the build STOPS. Reserved keys stay untouched, so topic
+#          grading is guaranteed quota afterwards. Safe, but it means a
+#          long build can end early while two full keys sit unused.
+#
+#   True   the build spills into the reserved keys as a LAST RESORT,
+#          printing a loud warning each time. Nothing is wasted, but a
+#          big enough build can leave topic grading with nothing — which
+#          is the exact failure this reservation was added to prevent.
+#
+# Set True for calibration runs, where you are only building niches and
+# never grading topics, so protecting grading quota buys nothing. Set it
+# back to False for normal mixed use.
+ALLOW_RESERVE_FALLBACK = False
 
 # Daily quota per key (Google default for the YouTube Data API).
 DAILY_QUOTA_PER_KEY = 10_000
@@ -608,6 +651,30 @@ BREAKOUT_ERAS = [
 # An era below this many videos is skipped rather than ranked — a "top
 # 20" drawn from 25 videos is just the list, sorted.
 ERA_MIN_VIDEOS = 25
+
+# ============================================================
+# MULTI-WINDOW TOPIC GRADING
+# ============================================================
+# Grading a topic at several windows at once answers a question one
+# grade cannot: is this strong RECENTLY, or strong ACROSS THE YEAR?
+# A topic scoring well at 90d and poorly at 365d is newly hot; one
+# scoring well at both is durable.
+#
+# Both sides are always cut to the same window. Grading is percentile-
+# based, so a 90-day topic against a 365-day baseline compares two
+# different populations — the topic looks artificially fresh and
+# nothing in the output shows it.
+#
+# Windows are NESTED here, unlike breakout eras. That is correct for
+# grading: "how does this topic look over the last 90 days" is a real
+# question, and the comparison is against the niche over the same 90
+# days, so the age bias cancels on both sides.
+TOPIC_GRADE_WINDOWS = [90, 180, 365]
+
+# Below this many videos on either side, a window is skipped rather
+# than graded. Percentiles from a few dozen videos swing on one lucky
+# upload.
+TOPIC_GRADE_MIN_VIDEOS = 80
 BREAKOUT_TIERS = [
     (0,       2_000,   "brand_new",       "Brand-New Breakouts (<2k subs)"),
     (2_000,   100_000, "small",           "Small-Channel Breakouts (2k–100k subs)"),

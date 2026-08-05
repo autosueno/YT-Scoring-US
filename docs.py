@@ -50,7 +50,9 @@ MENU = [
      "One creator's whole catalogue for ~13 units."),
     ("9", "What changed since the last build", "free",
      "Measured growth between two snapshots. Needs 2+ builds."),
-    ("10", "Quit", None, ""),
+    ("10", "Compare all niches side by side", "free",
+     "Every build in one table, plus calibrated spread thresholds."),
+    ("11", "Quit", None, ""),
 ]
 
 WORKFLOWS = [
@@ -145,6 +147,19 @@ WORKFLOWS = [
                 "search around the topics already winning**. Separate "
                 "files, so run both.",
         "cost": "Free · 1–3 min depending on preset",
+        "tint": "free",
+    },
+    {
+        "name": "Compare niches against each other",
+        "aim": "Which of these markets is actually worth entering?",
+        "chain": [("key", "10", "compare"), ("arrow",),
+                  ("file", "_compare/compare_365d.md")],
+        "note": "Every built niche in one table, sorted by spread — the "
+                "climb from ordinary to good. With five or more niches it "
+                "derives spread thresholds from **your measured data** "
+                "instead of the assumed ones. Reads stored metadata, so "
+                "no quota and no recompute.",
+        "cost": "Free · reads what is already on disk",
         "tint": "free",
     },
     {
@@ -612,7 +627,7 @@ def render_readme():
     L.append("")
     L.append("```bash")
     L.append("pip install -r requirements.txt")
-    L.append("cp .env.example .env      # add YOUTUBE_API_KEY_1..7")
+    L.append("cp .env.example .env      # add YOUTUBE_API_KEY_1..12")
     L.append("py main.py")
     L.append("```")
     L.append("")

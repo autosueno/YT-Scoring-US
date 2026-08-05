@@ -20,7 +20,7 @@ Three measured pillars:
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env      # add YOUTUBE_API_KEY_1..7
+cp .env.example .env      # add YOUTUBE_API_KEY_1..12
 py main.py
 ```
 
@@ -37,7 +37,8 @@ py main.py
 | **7** | Search intent & Reddit signals | free |
 | **8** | Tear down a single channel | free |
 | **9** | What changed since the last build | free |
-| **10** | Quit | — |
+| **10** | Compare all niches side by side | free |
+| **11** | Quit | — |
 
 ## Output layout
 
@@ -54,15 +55,16 @@ exports/_channels/<name>/  channel teardowns
 history/<niche>/<date>/    archived previous builds
 ```
 
-## Modules (23)
+## Modules (25)
 
 ```
   angles              api_keys            baseline            calendars
-  channel             collector           config              dashboard
-  discover            grader              insights            main
-  metrics             paths               quota_tracker       report
-  seo                 shorts              signals             statistics
-  thumbnail_sheet     timing              trends
+  channel             collector           compare             config
+  dashboard           discover            grader              insights
+  main                metrics             paths               quota_tracker
+  report              seo                 shorts              signals
+  statistics          test_keys           thumbnail_sheet     timing
+  trends
 ```
 
 ## Known limits

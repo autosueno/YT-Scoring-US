@@ -32,7 +32,8 @@ Three pillars: **Demand** (inferred from engagement velocity and consumption), *
 7) Search intent & Reddit signals
 8) Tear down a single channel
 9) What changed since the last build
-10) Quit
+10) Compare all niches side by side
+11) Quit
 ```
 
 ## Workflows
@@ -78,6 +79,12 @@ Terms climbing fast on Reddit but thin on YouTube. **Treat these as leads to che
     [7] → a → preset 2 then preset 5
 
 Preset 2 covers the niche broadly, about a minute. Preset 5 is sharper and takes about two: **what people search around the topics already winning**. Separate files, so run both.  _Free · 1–3 min depending on preset_
+
+**Compare niches against each other** — Which of these markets is actually worth entering?
+
+    [10] compare → `_compare/compare_365d.md`
+
+Every built niche in one table, sorted by spread — the climb from ordinary to good. With five or more niches it derives spread thresholds from **your measured data** instead of the assumed ones. Reads stored metadata, so no quota and no recompute.  _Free · reads what is already on disk_
 
 **See what actually moved** — Is this niche going anywhere since you last looked?
 
