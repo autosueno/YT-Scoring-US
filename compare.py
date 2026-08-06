@@ -41,7 +41,7 @@ import os
 import pandas as pd
 
 from config import DATASETS_DIR, EXPORTS_DIR
-from paths import split_window, WINDOW_SEP
+from paths import split_window, WINDOW_SEP, locate, safe_name
 
 
 def list_all_niches():
@@ -64,11 +64,15 @@ def list_all_niches():
                       for d in sorted(os.listdir(base_dir))
                       if os.path.isdir(os.path.join(base_dir, d))
                       and d.endswith("d") and d[:-1].isdigit()]
-        if os.path.exists(os.path.join(base_dir, "metadata.json")):
+        if locate(base_dir, "metadata.json"):
             candidates.append((base_dir, name))
         for path, key in candidates:
-            mp = os.path.join(path, "metadata.json")
-            if not os.path.exists(mp):
+            # locate() rather than a bare join: metadata is written as
+            # <niche>_<window>_metadata.json, and joining the plain name
+            # made every built niche invisible here while the files sat
+            # on disk untouched.
+            mp = locate(path, "metadata.json")
+            if not mp:
                 continue
             try:
                 with open(mp, encoding="utf-8") as f:
@@ -100,19 +104,88 @@ def _row(key, meta):
     }
 
 
-def build_table(window_filter="365d"):
+def _window_days(key):
+    """'finance@365d' -> 365. Unwindowed builds sort last."""
+    _, win = split_window(key)
+    if win and win.endswith("d") and win[:-1].isdigit():
+        return int(win[:-1])
+    return -1
+
+
+def preferred_keys(niche_filter=None):
     """
-    One row per niche. Restricted to a single window by default, because
-    spread is not comparable across windows — a 90-day slice shows a
-    much narrower spread simply because recent videos have not finished
-    separating yet.
+    One key per niche NAME, choosing the longest window available.
+
+    A 365-day build contains every shorter window inside it and rests on
+    thirteen date slices rather than three, so its percentiles are the
+    steadier ones. Given both a 90d and a 365d build of the same niche,
+    comparing the 90d would be throwing away the better measurement —
+    and doing it invisibly, since nothing in the output says which window
+    was picked.
+
+    niche_filter: optional collection of base names to keep.
+    """
+    best = {}
+    for key, _meta in list_all_niches():
+        base, _ = split_window(key)
+        if niche_filter and base not in niche_filter:
+            continue
+        if base not in best or _window_days(key) > _window_days(best[base]):
+            best[base] = key
+    return [best[b] for b in sorted(best)]
+
+
+def window_mismatch(keys):
+    """
+    Describe a comparison that spans different collection windows.
+
+    Returns None when every key shares a window. Otherwise returns a
+    dict naming the windows involved, because the comparison is still
+    worth running but the spread figures are NOT like-for-like: a 90-day
+    sample looks narrower than a 365-day one no matter what the market
+    is doing, since recent videos have not finished separating from each
+    other. Silently mixing them turns a sampling artifact into a verdict.
+    """
+    wins = {}
+    for k in keys:
+        _, w = split_window(k)
+        wins.setdefault(w or "none", []).append(split_window(k)[0])
+    if len(wins) <= 1:
+        return None
+    widest = max(keys, key=_window_days)
+    return {
+        "windows": wins,
+        "widest": split_window(widest)[1] or "none",
+        "note": ("Spread is not comparable across windows. A shorter "
+                 "window always looks narrower, because its videos have "
+                 "had less time to separate from each other — so the "
+                 "niche with the shorter window will understate its own "
+                 "spread. Read the ordering with that in mind, or "
+                 "rebuild them onto a common window."),
+    }
+
+
+def build_table(window_filter="365d", keys=None):
+    """
+    One row per niche.
+
+    keys: explicit list of niche keys to include. When given it wins over
+    window_filter entirely, so a deliberate mixed-window comparison is
+    possible — window_mismatch() reports it rather than the table
+    refusing to run.
     """
     rows = []
-    for key, meta in list_all_niches():
-        _, win = split_window(key)
-        if window_filter and win != window_filter:
-            continue
-        rows.append(_row(key, meta))
+    if keys is not None:
+        wanted = set(keys)
+        for key, meta in list_all_niches():
+            if key in wanted:
+                rows.append(_row(key, meta))
+    else:
+        for key, meta in list_all_niches():
+            _, win = split_window(key)
+            if window_filter and win != window_filter:
+                continue
+            rows.append(_row(key, meta))
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
@@ -146,29 +219,49 @@ def calibrate(df):
     }
 
 
-def export_comparison(window_filter="365d") -> dict:
-    """Write compare.md and compare.csv into exports/."""
-    df = build_table(window_filter)
+def export_comparison(window_filter="365d", keys=None) -> dict:
+    """Write the comparison table into exports/_compare/."""
+    df = build_table(window_filter, keys=keys)
     if df.empty:
         return {"error": "no_niches"}
 
     out_dir = os.path.join(EXPORTS_DIR, "_compare")
     os.makedirs(out_dir, exist_ok=True)
-    csv_path = os.path.join(out_dir, f"compare_{window_filter or 'all'}.csv")
+
+    # Name the file after what it compares, not after a window that may
+    # not even apply — two comparisons of different niche sets must not
+    # overwrite each other, on disk or once attached to a message.
+    if keys:
+        stem = "_vs_".join(safe_name(split_window(k)[0]) for k in keys[:3])
+        if len(keys) > 3:
+            stem += f"_and_{len(keys) - 3}_more"
+    else:
+        stem = f"compare_{window_filter or 'all'}"
+    csv_path = os.path.join(out_dir, f"{stem}.csv")
     df.to_csv(csv_path, index=False)
-    md_path = os.path.join(out_dir, f"compare_{window_filter or 'all'}.md")
+    md_path = os.path.join(out_dir, f"{stem}.md")
+
+    mismatch = window_mismatch(keys) if keys else None
+    windows_used = sorted({str(r.window) for r in df.itertuples()})
 
     L = ["# Niche comparison", ""]
-    L.append(f"{len(df)} niche(s) at the **{window_filter}** window. "
-             f"Sorted by spread, narrowest first.")
+    if mismatch:
+        L.append(f"{len(df)} niche(s) across **mixed windows** "
+                 f"({', '.join(windows_used)}). Sorted by spread, "
+                 f"narrowest first.")
+        L.append("")
+        L.append(f"> ⚠️ **Mixed windows.** {mismatch['note']}")
+    else:
+        L.append(f"{len(df)} niche(s) at the **{windows_used[0]}** window. "
+                 f"Sorted by spread, narrowest first.")
+        L.append("")
+        L.append("> Spread is not comparable across windows — a 90-day "
+                 "slice always looks narrower, because recent videos have "
+                 "not finished separating from each other yet. Only "
+                 "compare like with like.")
     L.append("")
-    L.append("> Spread is not comparable across windows — a 90-day slice "
-             "always looks narrower, because recent videos have not "
-             "finished separating from each other yet. Only compare like "
-             "with like.")
-    L.append("")
-    L.append("| niche | videos | typical views | top 10% | spread | typical eng |")
-    L.append("|---|---|---|---|---|---|")
+    L.append("| niche | window | videos | typical views | top 10% | spread | typical eng |")
+    L.append("|---|---|---|---|---|---|---|")
     for r in df.itertuples():
         tv = f"{r.typical_views:,.0f}" if pd.notna(r.typical_views) else "—"
         t10 = f"{r.top10_views:,.0f}" if pd.notna(r.top10_views) else "—"
@@ -176,7 +269,7 @@ def export_comparison(window_filter="365d") -> dict:
         eng = (f"{r.typical_engagement:.2%}"
                if pd.notna(r.typical_engagement) else "—")
         name = r.niche + (" *(sliced)*" if r.derived else "")
-        L.append(f"| {name} | {r.videos:,} | {tv} | {t10} | {sp} | {eng} |")
+        L.append(f"| {name} | {r.window} | {r.videos:,} | {tv} | {t10} | {sp} | {eng} |")
     L.append("")
 
     cal = calibrate(df)
@@ -229,4 +322,5 @@ def export_comparison(window_filter="365d") -> dict:
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
     return {"md": md_path, "csv": csv_path, "niches": len(df),
+            "mismatch": window_mismatch(keys) if keys else None,
             "calibrated": bool(cal)}

@@ -37,7 +37,7 @@ from collections import Counter
 import pandas as pd
 
 from config import EXPORTS_DIR, HISTORY_DIR
-from paths import export_dir_for, safe_name
+from paths import export_dir_for, safe_name, locate as _locate
 from paths import named as _named
 from insights import _STOPWORDS, _tokenize
 
@@ -65,7 +65,7 @@ def list_snapshots(niche_name):
     out = []
     for d in sorted(os.listdir(root)):
         p = os.path.join(root, d)
-        csv = os.path.join(p, "videos.csv")
+        csv = _locate(p, "videos.csv") or os.path.join(p, "videos.csv")
         if os.path.isdir(p) and os.path.exists(csv):
             out.append({"date": d, "path": p, "videos_csv": csv})
     return out

@@ -508,6 +508,27 @@ def _require_database(niche_name) -> bool:
     return False
 
 
+def _built_dataset_exists(base_dir):
+    """
+    Does this folder hold a usable build, at either layout and either
+    naming form?
+
+    Checks the folder itself (the flat legacy layout) and one level down
+    (the windowed layout, datasets/<niche>/365d/). Uses paths.locate so
+    a namespaced videos.csv is found as readily as a bare one.
+    """
+    import paths as _p
+    if not os.path.isdir(base_dir):
+        return False
+    if _p.locate(base_dir, "videos.csv"):
+        return True
+    for sub in os.listdir(base_dir):
+        d = os.path.join(base_dir, sub)
+        if os.path.isdir(d) and _p.locate(d, "videos.csv"):
+            return True
+    return False
+
+
 def _available_niches():
     """Names of niches that have a usable database on disk."""
     from config import DATASETS_DIR
@@ -515,7 +536,7 @@ def _available_niches():
         return []
     return sorted(
         d for d in os.listdir(DATASETS_DIR)
-        if os.path.exists(os.path.join(DATASETS_DIR, d, "videos.csv"))
+        if _built_dataset_exists(os.path.join(DATASETS_DIR, d))
     )
 
 
@@ -769,74 +790,121 @@ def _dispatch(choice):
 
 def _dispatch_compare():
     """
-    Option 10 — every built niche in one table.
+    Option 10 — pick which built niches to compare.
 
-    No API calls and no recompute: each build already stored its own
-    medians and P90s, so this is a table lookup across datasets/.
+    Not "all niches at one window": that both over-selects (you rarely
+    want every build you have ever made) and under-selects (a niche whose
+    only build is 90d vanishes entirely from a 365d comparison, which is
+    how two perfectly good builds can produce "no niches found").
+
+    So: list what actually exists, default to the LONGEST window of each
+    niche, and let the choice be made explicitly.
     """
     import compare as _cmp
     import pandas as pd
-    all_n = _cmp.list_all_niches()
-    if not all_n:
-        print("\n  No niches built yet.")
-        return
-    windows = sorted({_cmp.split_window(k)[1] or "?" for k, _ in all_n})
-    print(f"\n  {len(all_n)} build(s) across windows: {', '.join(windows)}")
-    print("  Spread is only comparable within one window — a 90d slice")
-    print("  always looks narrower because recent videos have not")
-    print("  finished separating yet.")
-    default = "365d" if "365d" in windows else windows[0]
-    win = input(f"  Window to compare [{default}]: ").strip() or default
 
-    res = _cmp.export_comparison(win)
-    if res.get("error"):
-        print(f"  Nothing built at the {win} window.")
+    keys = _cmp.preferred_keys()
+    if not keys:
+        print("\n  No built niches found in datasets/.")
+        print("  Option 1 builds one. If you have built niches already,")
+        print("  check that datasets/<niche>/<window>/ holds a videos.csv.")
         return
-    df = _cmp.build_table(win)
+    if len(keys) < 2:
+        base = _cmp.split_window(keys[0])[0]
+        print(f"\n  Only one niche is built ({base}).")
+        print("  A comparison needs at least two.")
+        return
+
+    all_builds = [k for k, _ in _cmp.list_all_niches()]
+    print(f"\n  Built niches ({len(keys)}):\n")
+    for i, k in enumerate(keys, 1):
+        base, win = _cmp.split_window(k)
+        others = sorted({_cmp.split_window(b)[1] for b in all_builds
+                         if _cmp.split_window(b)[0] == base
+                         and _cmp.split_window(b)[1] != win},
+                        key=lambda w: -(int(w[:-1]) if w and w[:-1].isdigit() else 0))
+        extra = f"   (also built at {', '.join(others)})" if others else ""
+        print(f"    {i:>2}) {base:<28} {win or '—':>6}{extra}")
+    print("\n  Longest window is pre-selected for each niche — a 365d "
+          "build\n  rests on more date slices than a 90d one, so its "
+          "percentiles\n  are the steadier measurement.")
+
+    pick = input(f"\n  Compare which? (e.g. 1,3,4 — Enter for all "
+                 f"{len(keys)}): ").strip()
+    if pick:
+        chosen = []
+        for part in pick.replace(" ", ",").split(","):
+            if part.isdigit() and 1 <= int(part) <= len(keys):
+                k = keys[int(part) - 1]
+                if k not in chosen:
+                    chosen.append(k)
+        if len(chosen) < 2:
+            print("  Need at least two valid numbers — cancelled.")
+            return
+        keys = chosen
+
+    mismatch = _cmp.window_mismatch(keys)
+    if mismatch:
+        wins = ", ".join(sorted(mismatch["windows"]))
+        print(f"\n  ⚠️  Mixed windows in this selection ({wins}).")
+        print("      A shorter window always looks narrower, because its")
+        print("      videos have had less time to separate. The niche on")
+        print("      the shorter window will understate its own spread.")
+        if input("      Compare anyway? [y/N]: ").strip().lower() != "y":
+            print("      Cancelled. Rebuild them onto a common window, or")
+            print("      pick a set that already shares one.")
+            return
+
+    res = _cmp.export_comparison(keys=keys)
+    if res.get("error"):
+        print("  Nothing to compare.")
+        return
+    df = _cmp.build_table(keys=keys)
     print()
-    print(f"  {'niche':<26}{'videos':>8}{'typical':>10}{'top 10%':>11}{'spread':>9}")
+    print(f"  {'niche':<24}{'window':>8}{'videos':>8}{'typical':>10}"
+          f"{'top 10%':>11}{'spread':>9}")
     for r in df.itertuples():
         tv = f"{r.typical_views:,.0f}" if pd.notna(r.typical_views) else "—"
         t10 = f"{r.top10_views:,.0f}" if pd.notna(r.top10_views) else "—"
         sp = f"{r.spread:.1f}x" if pd.notna(r.spread) else "—"
         v = f"{r.videos:,}" if r.videos else "—"
-        print(f"  {r.niche[:25]:<26}{v:>8}{tv:>10}{t10:>11}{sp:>9}")
+        print(f"  {r.niche[:23]:<24}{str(r.window):>8}{v:>8}{tv:>10}"
+              f"{t10:>11}{sp:>9}")
     print()
     if res.get("calibrated"):
         print("  Calibrated thresholds written to the report.")
     else:
-        print("  Need 5+ niches at this window before thresholds can be")
-        print("  derived from evidence rather than assumption.")
+        print("  Need 5+ niches before thresholds can be derived from")
+        print("  evidence rather than assumption.")
     print(f"  → {res['md']}")
 
-    # The table above says how the niches DIFFER. It cannot say which to
-    # enter, because that needs the joint distribution (views crossed
-    # with channel size and with age) which metadata does not store. The
-    # verdict re-reads videos.csv to answer it. Offered rather than
-    # automatic: it is seconds of work per niche instead of instant.
-    deep = _dispatch_verdict(win)
+    # The table says how the niches DIFFER. It cannot say which to enter,
+    # because that needs the joint distribution (views crossed with
+    # channel size and with age) which metadata does not store. The
+    # verdict re-reads videos.csv to answer it.
+    deep = _dispatch_verdict(keys, mismatch)
     if deep:
         print(f"  → {deep}")
 
 
-def _dispatch_verdict(win):
+def _dispatch_verdict(keys, mismatch=None):
     """Optional deep pass at the end of option 10. Returns a path or None."""
     import verdict as _v
-    keys = _v.available_niches(win)
-    if len(keys) < 2:
+    usable = [k for k in keys if _v.has_dataset(k)]
+    if len(usable) < 2:
         return None
     print("\n  Deep entry verdict reads videos.csv for each niche and")
     print("  answers which is worth breaking into — entry access, floor")
     print("  composition, durability, effort, and revenue at three ad")
     print("  rates. No API calls, a few seconds per niche.")
-    if input(f"  Run it for {len(keys)} niche(s)? [y/N]: ").strip().lower() != "y":
+    if input(f"  Run it for {len(usable)} niche(s)? [y/N]: ").strip().lower() != "y":
         return None
-    out = _v.export_verdict(keys, window=win)
+    out = _v.export_verdict(usable, mismatch=mismatch)
     if out.get("error"):
         print(f"  Could not build a verdict: {out['error']}")
         return None
     if out.get("skipped"):
-        print(f"  Skipped (no usable videos.csv): {', '.join(out['skipped'])}")
+        print(f"  Skipped (dataset too thin): {', '.join(out['skipped'])}")
     print(f"\n  {_v.verdict_text(out['result'])}")
     print(f"  → {out['csv']}")
     return out["html"]

@@ -678,10 +678,19 @@ def render_html(res):
 
     H.append('<p class="eyebrow">Niche entry verdict</p>')
     H.append(f'<h1>{" &nbsp;·&nbsp; ".join(disp[k] for k in order)}</h1>')
-    H.append(f'<p class="sub">{len(P)} niche(s) at the '
-             f'{P[order[0]]["window"]} window &middot; '
+    wins = {P[k]["window"] for k in P}
+    win_label = (f'the {P[order[0]]["window"]} window' if len(wins) == 1
+                 else "mixed windows — " + ", ".join(
+                     f'{P[k]["niche"]} {P[k]["window"]}' for k in order))
+    H.append(f'<p class="sub">{len(P)} niche(s) at {win_label} &middot; '
              f'{sum(P[k]["videos"] for k in P):,} videos read from disk</p>')
     H.append(f'<div class="verdict">{verdict_text(res)}</div>')
+
+    if res.get("mismatch"):
+        wins = ", ".join(f"{w} ({', '.join(ns)})"
+                         for w, ns in sorted(res["mismatch"]["windows"].items()))
+        H.append(f'<div class="flag"><b>Mixed collection windows:</b> {wins}. '
+                 f'{res["mismatch"]["note"]}</div>')
 
     if not res["rpm_table_found"]:
         H.append('<div class="flag">rpm_rates.csv was not found beside '
@@ -806,7 +815,12 @@ def render_html(res):
 # EXPORT
 # ============================================================
 
-def export_verdict(niche_keys, window=None, exports_root=None):
+def has_dataset(niche_key) -> bool:
+    """Is there a videos.csv for this key? Cheap check before offering."""
+    return os.path.exists(videos_path(niche_key))
+
+
+def export_verdict(niche_keys, window=None, exports_root=None, mismatch=None):
     """
     Write the verdict as HTML plus a flat CSV of every measured number.
 
@@ -816,6 +830,7 @@ def export_verdict(niche_keys, window=None, exports_root=None):
     res = analyse(niche_keys, window=window)
     if res.get("error"):
         return res
+    res["mismatch"] = mismatch
 
     root = exports_root or EXPORTS_DIR
     out_dir = os.path.join(root, "_compare")
@@ -825,7 +840,8 @@ def export_verdict(niche_keys, window=None, exports_root=None):
                        for k in res["orders"]["mid"][:3])
     if len(res["profiles"]) > 3:
         stem += f"_and_{len(res['profiles']) - 3}_more"
-    suffix = f"_{window}" if window else ""
+    wins = {res["profiles"][k]["window"] for k in res["profiles"]}
+    suffix = f"_{list(wins)[0]}" if len(wins) == 1 else "_mixed_windows"
 
     html_path = os.path.join(out_dir, f"{stem}{suffix}_verdict.html")
     with open(html_path, "w", encoding="utf-8") as f:

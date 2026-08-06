@@ -176,6 +176,31 @@ def named(subject: str, filename: str) -> str:
     return f"{slug}_{filename}"
 
 
+def locate(directory: str, filename: str):
+    """
+    Find a subject file in a directory when the subject is not known.
+
+    Callers that WALK the tree (the comparison table, the history
+    snapshot reader, the built-niche picker) discover folders rather than
+    being handed a niche name, so they cannot call named(). They used to
+    join the bare filename directly — which silently stopped matching the
+    moment files were namespaced, and made every built niche vanish from
+    option 10 while the data sat untouched on disk.
+
+    Returns the bare name if present, else the first file ending in
+    "_<filename>", else None.
+    """
+    p = os.path.join(directory, filename)
+    if os.path.exists(p):
+        return p
+    if os.path.isdir(directory):
+        suffix = "_" + filename
+        for fn in sorted(os.listdir(directory)):
+            if fn.endswith(suffix):
+                return os.path.join(directory, fn)
+    return None
+
+
 def _subject_file(directory: str, subject: str, filename: str) -> str:
     """
     Where a subject's file lives, tolerating datasets built before the
