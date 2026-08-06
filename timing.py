@@ -68,6 +68,20 @@ def add_local_time(df, tz_name=None):
     rather than silently producing misleading advice.
     """
     if df.empty or "published_at" not in df.columns:
+        # Without a publish timestamp there is nothing to derive from, but
+        # callers group on these columns unconditionally. Returning the
+        # frame without them turns a missing-data situation into a KeyError
+        # deep inside an export. Create empty columns so every consumer
+        # sees "no timing signal" (rows filtered out by min-sample checks)
+        # instead of crashing. A dataset built by the collector always has
+        # published_at; this path only fires on malformed or partial input.
+        if not df.empty:
+            if "local_hour_block" not in df.columns:
+                df = df.copy()
+                df["local_hour_block"] = pd.NA
+                df["local_hour"] = pd.NA
+                df["local_weekday"] = pd.NA
+                df["_tz_used"] = "UTC"
         return df
     tz_name = tz_name or AUDIENCE_TIMEZONE
     published = pd.to_datetime(df["published_at"], utc=True, errors="coerce")

@@ -281,6 +281,50 @@ EXPORT_KIND_CHANNEL = "channels"
 EXPORT_KIND_SEARCH = "searches"
 
 
+def resolve_niche(niche_name: str):
+    """
+    Turn a bare niche name into the key that actually has data on disk.
+
+    A person types 'space_exploration'. The data lives in
+    datasets/space_exploration/365d/. The bare name resolves to the
+    PARENT folder, which holds no videos.csv — so every loader reported
+    "no niche database found" while the lister happily showed the niche
+    as available, because the lister walks folders and the loader walks
+    files. They disagreed about where a niche lives.
+
+    This bridges them. Given a name with an explicit window (via '@' or
+    already pointing at a window folder) it is returned unchanged. Given
+    a bare name it finds the built windows beneath it and returns the
+    LONGEST — a 365d build is the fuller measurement, and picking it by
+    default matches what option 10 already does.
+
+    Returns the resolved key (e.g. 'space_exploration@365d'), or the
+    original name untouched when nothing is found, so existing "not
+    built" error paths still fire naturally.
+    """
+    if WINDOW_SEP in str(niche_name):
+        return niche_name
+    base = safe_name(split_window(niche_name)[0])
+    parent = os.path.join(DATASETS_DIR, base)
+    # Already a complete build at the parent level (flat legacy layout)?
+    if locate(parent, "videos.csv") or locate(parent, "metadata.json"):
+        return niche_name
+    if not os.path.isdir(parent):
+        return niche_name
+    wins = []
+    for sub in os.listdir(parent):
+        d = os.path.join(parent, sub)
+        if not os.path.isdir(d):
+            continue
+        if locate(d, "videos.csv") or locate(d, "metadata.json"):
+            days = int(sub[:-1]) if sub.endswith("d") and sub[:-1].isdigit() else -1
+            wins.append((days, sub))
+    if not wins:
+        return niche_name
+    _, best = max(wins)
+    return f"{split_window(niche_name)[0]}{WINDOW_SEP}{best}"
+
+
 def _nest(root: str, niche_name: str) -> str:
     """root/<niche>/<window>/ — the window becomes its own folder level."""
     base, win = split_window(niche_name)

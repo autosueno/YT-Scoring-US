@@ -329,6 +329,12 @@ def momentum_windows(lookback_days=None):
 def _days_since(df):
     """Series of whole days since each video's publish time (>= 0)."""
     now = datetime.now(timezone.utc)
+    if "published_at" not in df.columns:
+        # A collector-built dataset always has published_at; a partial or
+        # externally-supplied frame may not. Return NaN so age-based
+        # diagnostics abstain (their callers already treat NaN as "no
+        # signal") rather than raising from inside a grade.
+        return pd.Series([float("nan")] * len(df), index=df.index)
     published = pd.to_datetime(df["published_at"], utc=True, errors="coerce")
     days = (now - published).dt.total_seconds() / 86400
     return days.clip(lower=0)

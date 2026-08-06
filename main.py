@@ -534,6 +534,10 @@ def _available_niches():
     from config import DATASETS_DIR
     if not os.path.isdir(DATASETS_DIR):
         return []
+    # Check for a real build (at the parent for the flat layout, or in any
+    # window subfolder), so the list matches what can actually be loaded.
+    # Listing a bare folder that only CONTAINS window folders was half the
+    # confusion: the name showed as available, then "not found" on use.
     return sorted(
         d for d in os.listdir(DATASETS_DIR)
         if _built_dataset_exists(os.path.join(DATASETS_DIR, d))
@@ -755,16 +759,19 @@ def _dispatch(choice):
                                   export_formats=formats)
 
     elif choice == "3":
-        niche = input("Niche name: ").strip()
-        discover_opportunities(niche)
+        niche = _pick_niche("Niche name: ")
+        if niche:
+            discover_opportunities(niche)
 
     elif choice == "4":
-        niche = input("Niche name: ").strip()
-        show_niche(niche)
+        niche = _pick_niche("Niche name: ")
+        if niche:
+            show_niche(niche)
 
     elif choice == "5":
-        niche = input("Niche name: ").strip()
-        grade_existing_niche(niche)
+        niche = _pick_niche("Niche name: ")
+        if niche:
+            grade_existing_niche(niche)
 
     elif choice == "6":
         _dispatch_thumbnail_sheet()
@@ -829,19 +836,47 @@ def _dispatch_compare():
           "build\n  rests on more date slices than a 90d one, so its "
           "percentiles\n  are the steadier measurement.")
 
-    pick = input(f"\n  Compare which? (e.g. 1,3,4 — Enter for all "
-                 f"{len(keys)}): ").strip()
-    if pick:
-        chosen = []
+    # The example must use numbers that actually exist. Suggesting
+    # "1,3,4" when only two niches are listed invites a selection that
+    # cannot work and then blames the person for making it.
+    example = ",".join(str(i) for i in range(1, min(len(keys), 3) + 1))
+
+    # Three attempts rather than one. Dropping back to the main menu on a
+    # mistyped digit means re-navigating the whole option to fix a comma.
+    for attempt in range(3):
+        pick = input(f"\n  Compare which? (e.g. {example} — Enter for all "
+                     f"{len(keys)}): ").strip()
+        if not pick:
+            break   # Enter = keep all
+
+        chosen, bad = [], []
         for part in pick.replace(" ", ",").split(","):
+            if not part:
+                continue
             if part.isdigit() and 1 <= int(part) <= len(keys):
                 k = keys[int(part) - 1]
                 if k not in chosen:
                     chosen.append(k)
-        if len(chosen) < 2:
-            print("  Need at least two valid numbers — cancelled.")
+            else:
+                bad.append(part)
+
+        if bad:
+            print(f"  Not on the list: {', '.join(bad)} "
+                  f"(pick between 1 and {len(keys)}).")
+        elif len(chosen) == 1:
+            only = _cmp.split_window(chosen[0])[0]
+            print(f"  That is one niche ({only}). A comparison needs at "
+                  f"least two —\n  it measures niches against each other, "
+                  f"so there is nothing to\n  measure {only} against.")
+            print(f"  Add another number, or press Enter to use all "
+                  f"{len(keys)}.")
+        elif len(chosen) >= 2:
+            keys = chosen
+            break
+
+        if attempt == 2:
+            print("  Cancelled — returning to the menu.")
             return
-        keys = chosen
 
     mismatch = _cmp.window_mismatch(keys)
     if mismatch:
