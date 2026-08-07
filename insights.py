@@ -271,12 +271,23 @@ def competition_summary(df):
 
     subs = df["channel_subs"] if "channel_subs" in df.columns else None
 
+    # Median catalogue depth of the channels present — how established the
+    # incumbents are. One of the two supply signals that actually varies
+    # between niches (CV 57% across eleven), so the supply pillar reads it
+    # directly. Per-channel (first value per channel_id), not per-video,
+    # so a prolific channel's many rows don't inflate it.
+    cat_depth = None
+    if "channel_video_count" in df.columns and "channel_id" in df.columns:
+        cat_depth = float(
+            df.groupby("channel_id")["channel_video_count"].first().median())
+
     return {
         "video_count": n_videos,
         "unique_channels": unique_channels,
         "unique_channel_ratio": unique_channels / n_videos if n_videos else None,
         "avg_subscribers": float(subs.mean()) if subs is not None else None,
         "median_subscribers": float(subs.median()) if subs is not None else None,
+        "median_channel_video_count": cat_depth,
         "pct_small_creators": _pct("small_creator"),
         "pct_medium_creators": _pct("medium_creator"),
         "pct_large_creators": _pct("large_creator"),
@@ -469,6 +480,98 @@ def momentum_summary(df, lookback_days=None):
     prior_rate = int(prior_mask.sum()) / (prior_days - recent_days)
     supply_growth = _safe_ratio(recent_rate, prior_rate)
 
+    # Confidence on demand_growth — is the direction real, or could
+    # resampling flip it?
+    #
+    # Measured across eleven real niches, the 45-day demand-growth ratio's
+    # 95% bootstrap interval crosses 1.0 for SIX of them: the point
+    # estimate says "rising" or "falling" but the data cannot actually
+    # tell which. Momentum already abstains on sample SIZE (below
+    # MOMENTUM_MIN_WINDOW_VIDEOS); this is the same honesty applied to
+    # sample NOISE. A niche whose interval straddles 1.0 should contribute
+    # ~nothing to opportunity, not because momentum is being damped, but
+    # because there is no defensible direction to contribute. A niche
+    # whose interval sits clearly above 1.0 contributes its FULL signal.
+    #
+    # 300 resamples is plenty for a 2.5/97.5 interval and cheap at these
+    # window sizes. Deterministic seed so a given dataset always reports
+    # the same interval.
+    demand_growth_ci = None
+    demand_growth_conclusive = None
+    demand_growth_confidence = None
+    if ("views_per_hour" in df.columns
+            and recent_n >= MOMENTUM_MIN_WINDOW_VIDEOS
+            and prior_n >= MOMENTUM_MIN_WINDOW_VIDEOS):
+        import numpy as _np
+        r_vals = df.loc[recent_mask, "views_per_hour"].dropna().values
+        p_vals = df.loc[prior_mask, "views_per_hour"].dropna().values
+        if len(r_vals) >= MOMENTUM_MIN_WINDOW_VIDEOS and len(p_vals) >= MOMENTUM_MIN_WINDOW_VIDEOS:
+            _rng = _np.random.default_rng(len(r_vals) * 1000 + len(p_vals))
+            boot = []
+            tw = MOMENTUM_TAIL_WEIGHT
+            for _ in range(300):
+                rs = _rng.choice(r_vals, len(r_vals), replace=True)
+                ps = _rng.choice(p_vals, len(p_vals), replace=True)
+                rm, pm = _np.median(rs), _np.median(ps)
+                rp, pp = _np.quantile(rs, 0.90), _np.quantile(ps, 0.90)
+                if pm > 0 and pp > 0:
+                    boot.append((1 - tw) * (rm / pm) + tw * (rp / pp))
+            if boot:
+                lo, hi = float(_np.percentile(boot, 2.5)), float(_np.percentile(boot, 97.5))
+                demand_growth_ci = [lo, hi]
+                demand_growth_conclusive = (lo > 1.0) or (hi < 1.0)
+
+                # CONTINUOUS confidence, 0..1, replacing a hard cutoff.
+                #
+                # FIRST VERSION (superseded): confidence = distance / (distance
+                # + width), dividing the near edge's distance from 1.0 by the
+                # interval's raw width. This punished WIDE-but-unambiguous
+                # intervals: credit_cards_explained's [2.62, 6.02] — entirely
+                # above 1.0, a clearly rising niche — scored confidence 0.32
+                # under that formula purely because the interval happened to
+                # be wide, which cut its momentum contribution from 26.4 to
+                # 10.6 despite the direction never being in doubt. Width and
+                # directional certainty are different questions; that formula
+                # conflated them.
+                #
+                # THIS VERSION measures confidence relative to the POINT
+                # ESTIMATE instead of the interval's own width, in log space
+                # (matching the log scale momentum already uses elsewhere):
+                #
+                #   near_edge = whichever bound sits closer to 1.0
+                #   confidence = |log10(near_edge)| / |log10(point_estimate)|
+                #
+                # This asks "how much of the point estimate's apparent
+                # strength survives at the conservative edge of the
+                # interval?" A tight interval where the edge sits nearly as
+                # far from 1.0 as the point estimate itself scores near 1
+                # (little uncertainty ate into the signal). A wide interval
+                # whose conservative edge still clears 1.0 by a healthy
+                # margin — like credit_cards' [2.62, 6.02] — scores high too,
+                # because 2.62 itself is already far from 1.0; width alone no
+                # longer punishes it. An interval whose edge sits barely past
+                # 1.0 relative to how large the point estimate claims to be
+                # — technically "conclusive" but only just — correctly scores
+                # low, which is what happened to ancient_history's boundary
+                # case: [1.09, 2.87] scores confidence ~0.15 here, versus
+                # being treated identically to credit_cards' confident rise
+                # under the old binary test.
+                point = float(_np.median(boot))
+                if point > 0 and point != 1.0:
+                    signed_point = abs(_np.log10(point))
+                    near_edge = lo if lo > 1.0 else (hi if hi < 1.0 else None)
+                    if near_edge is None:
+                        # interval straddles 1.0 — direction genuinely unknown
+                        demand_growth_confidence = 0.0
+                    elif signed_point <= 0:
+                        demand_growth_confidence = 0.0
+                    else:
+                        signed_edge = abs(_np.log10(near_edge))
+                        demand_growth_confidence = max(
+                            0.0, min(1.0, signed_edge / signed_point))
+                else:
+                    demand_growth_confidence = 0.0
+
     # Evergreen: do old videos still earn views/hour comparable to new ones?
     evergreen_score = None
     if "views_per_hour" in df.columns:
@@ -511,6 +614,9 @@ def momentum_summary(df, lookback_days=None):
         "sufficient_data": (recent_n >= MOMENTUM_MIN_WINDOW_VIDEOS
                             and prior_n >= MOMENTUM_MIN_WINDOW_VIDEOS),
         "demand_growth": demand_growth,
+        "demand_growth_ci": demand_growth_ci,
+        "demand_growth_conclusive": demand_growth_conclusive,
+        "demand_growth_confidence": demand_growth_confidence,
         "supply_growth": supply_growth,
         "view_acceleration": demand_growth,     # alias per doc vocabulary
         "upload_acceleration": supply_growth,   # alias per doc vocabulary

@@ -78,29 +78,118 @@ import compare as _compare
 ANCHORS = {
     # Share of top-decile videos from channels under 10k subs. Zero means
     # the algorithm never surfaces newcomers here, whatever their quality.
-    "underdog_share": (0.00, 0.30),
+    #
+    # PROVISIONAL-v2, from 11 real niches. First version anchored the
+    # "excellent" end at 30% underdog access — invented, and wildly
+    # optimistic: measured across all 11 niches, the highest was 11.2%
+    # (personal_psychology) and NONE reached even half of 30%. Every
+    # niche's underdog component was scoring in a narrow, low, low-
+    # information band regardless of real differences between them —
+    # the exact failure mode Tier 1's spread label had. Anchor now
+    # contains the observed range (1.7%-11.2%) with ~30% headroom above
+    # the real max for niches not yet in the library.
+    "underdog_share": (0.00, 0.145),
     # Share of the dead zone posted by channels under 100 subs. High means
     # the floor is hobbyists you outrank by being competent, not good
     # creators who tried and failed.
-    "amateur_floor": (0.10, 0.60),
+    #
+    # PROVISIONAL-v2. Observed range 32.1%-60.1% across 11 niches; old
+    # anchor's floor (10%) sat so far below the real minimum that no
+    # niche ever scored near the bottom of this component either.
+    "amateur_floor": (0.27, 0.65),
     # Median views/hour of videos older than 6 months divided by the same
     # for videos under 2 months. Near 1.0 means the back catalogue keeps
-    # earning; near 0 means every video is dead within weeks.
-    "durability": (0.05, 0.70),
+    # earning; near 0 means every video is dead within weeks. ABOVE 1.0
+    # means old videos outperform new ones — a real, measured finding on
+    # two of eleven niches, not a modelling artefact.
+    #
+    # PROVISIONAL-v2, and the anchor SHAPE changed, not just its values.
+    # Observed durability spans 0.0059 (memory_stocks — a stock-related
+    # niche where old videos are worth almost nothing) to 2.33
+    # (home_espresso and personal_finance_basics, where old videos
+    # outearn new ones) — two and a half orders of magnitude. The old
+    # linear anchor (0.05, 0.70) could not represent that spread: it
+    # clamped both niches above 0.70 to identical scores (hiding a real
+    # 3x difference between them) while barely moving for anything in
+    # the low range. Durability is now scored on log10 of itself,
+    # matching how reward already handles its own wide range. The values
+    # below are log10(durability), not durability directly:
+    #     log10(0.0059) = -2.23  (memory_stocks, the real floor)
+    #     log10(2.33)   =  0.37  (home/finance, the real ceiling)
+    # with margin outside both.
+    "durability_log10": (-2.43, 0.57),
     # Median duration of top-decile videos, in seconds. Inverted: shorter
-    # winners are cheaper to produce.
-    "effort_seconds": (1800, 300),
+    # winners are cheaper to produce. Read as a PRODUCTION-LENGTH proxy —
+    # length correlates with effort on average but is not effort itself,
+    # and past ~8 minutes duration also feeds ad revenue directly (more
+    # mid-rolls), so it is not a pure cost signal either.
+    #
+    # PROVISIONAL-v2. Observed range 871s (credit_cards, 14.5min) to
+    # 2412s (world_war_two, 40min). The old anchor's "excellent" end
+    # (300s / 5min) was never reached by any niche's actual winners —
+    # nothing here wins short. Its "worst" end (1800s / 30min) was
+    # already exceeded by 3 of 11 niches, clamping them to an identical
+    # floor score despite a real 25% duration difference between them
+    # (1933s vs 2412s). Anchor now contains the observed range with
+    # margin.
+    "effort_seconds": (2612, 771),
     # Revenue per successful video (top-decile median views x RPM/1000),
     # log10 scaled because it spans orders of magnitude.
-    "log_revenue": (0.0, 3.0),      # $1 -> $1,000
+    #
+    # PROVISIONAL-v2. Observed revenue-per-winner at mid RPM: $134
+    # (home_espresso) to $3,260 (world_war_two) — log10 range 2.13 to
+    # 3.51. The old anchor's ceiling ($1,000 / log10=3.0) was already
+    # BELOW the real max, meaning ancient_history and world_war_two both
+    # clamped to 100 and became indistinguishable despite a real 23%
+    # difference in what they pay per winner. This is the exact clamping
+    # problem flagged when this framework was first reviewed. New anchor
+    # covers observed range with margin above the real ceiling.
+    "log_revenue": (1.93, 3.81),
 }
 
 WEIGHTS = {
-    "entry": 0.30,        # can a newcomer rank at all
-    "reward": 0.30,       # what a win is worth
-    "durability": 0.25,   # does the catalogue compound
-    "effort": 0.15,       # cost per attempt
+    "entry": 0.32,        # can a newcomer rank at all
+    "reward": 0.32,       # what a win is worth
+    "durability": 0.27,   # does the catalogue compound
+    "effort": 0.09,       # cost per attempt — see note below
 }
+# effort's weight was cut from 0.15 to 0.09 (redistributed proportionally
+# to the other three, which kept their relative ratio to each other).
+#
+# THE REASON IS DELIBERATELY NOT DISCRIMINATIVE POWER.
+# ------------------------------------------------------
+# A prior recalibration (see config.SUPPLY_METRIC_WEIGHTS) correctly
+# reweighted metrics by how much they varied across niches — but a
+# reviewer of that work flagged, correctly, that "varies a lot" and
+# "matters" are different claims, and that using one to justify the
+# other is a design decision, not a statistical conclusion. Re-checked
+# here on purpose: post anchor-fix, all four dimensions now discriminate
+# reasonably well (std 14-28 across 11 niches) — effort is NOT flat the
+# way two of Tier 2's supply metrics were. So the CV-based argument that
+# justified the supply reweight does not apply here, and is not the
+# reason for this change.
+#
+# The actual reason: `effort_seconds` measures video DURATION, not
+# effort. A 40-minute podcast can be cheaper to produce than an 8-minute
+# edited video; the metric was flagged as a weak proxy for its own
+# construct when it was first proposed, and calibrating its anchors
+# carefully (which was done — see ANCHORS below) does not fix that
+# problem, it just makes an admittedly-approximate measurement more
+# precisely wrong. Lowering its weight reflects lower CONFIDENCE that
+# the input measures what it claims, which is a different and
+# independent justification from "it doesn't vary enough."
+#
+# Checked this wasn't purely cosmetic: a sensitivity test across 11 real
+# niches found that dropping effort's weight to ZERO moved the ranking
+# only mildly (Spearman 0.92 vs the current weighting, one niche shifting
+# 2 places) — so this change is low-risk to the ranking either way. That
+# result is supporting evidence, not the reason for the change.
+#
+# entry/reward/durability's RELATIVE weights to each other are untouched
+# — no equivalent construct-validity concern was found for any of them,
+# and no evidence justified moving them. See verdict.weight_sensitivity()
+# for the robustness check this rests on, re-runnable as the library
+# grows.
 
 # A video below this many lifetime views contributed nothing. Absolute
 # rather than relative on purpose: a percentile floor moves with the
@@ -336,19 +425,39 @@ def score_profile(prof, rpm, level="mid"):
     """
     rate = float(rpm.get(f"rpm_{level}") or 0)
 
-    entry_parts = [
-        _lin(prof.get("underdog_share"), *ANCHORS["underdog_share"]),
-        _lin(prof.get("amateur_floor"), *ANCHORS["amateur_floor"]),
-    ]
-    entry_parts = [p for p in entry_parts if p is not None]
-    entry = sum(entry_parts) / len(entry_parts) if entry_parts else None
+    # Entry as a GATE, not an average — deferred earlier for lack of
+    # data, now built with 11 real niches behind it.
+    #
+    # A flat average of underdog_share and amateur_floor let a niche with
+    # ZERO newcomer winners still score up to 50 on entry, as long as its
+    # dead zone was full of hobbyists. That is backwards: if small
+    # channels never win here, the niche is closed to a newcomer
+    # regardless of how the floor looks — floor composition describes
+    # who is easy to outrank, not whether outranking them gets you
+    # anywhere. Gating makes underdog_share the precondition and
+    # amateur_floor a modifier on top of it, in the 0.6-1.0 range, so a
+    # generous floor can boost entry by up to 40% but can never manufacture
+    # access that is not there.
+    underdog = _lin(prof.get("underdog_share"), *ANCHORS["underdog_share"])
+    floor = _lin(prof.get("amateur_floor"), *ANCHORS["amateur_floor"])
+    if underdog is not None:
+        modifier = 0.6 + 0.4 * (floor / 100.0) if floor is not None else 0.8
+        entry = underdog * modifier
+    else:
+        entry = None
 
     # Revenue per successful video, not per niche: what one video that
     # reaches the top decile is worth.
     rev = (prof.get("p90_views") or 0) * rate / 1000.0
     reward = _lin(math.log10(rev) if rev > 0 else 0.0, *ANCHORS["log_revenue"])
 
-    durability = _lin(prof.get("durability"), *ANCHORS["durability"])
+    # Durability scored on log10 of itself — see ANCHORS["durability_log10"]
+    # for why: the raw ratio spans 2.5 orders of magnitude and a linear
+    # anchor could not represent that without clamping real extremes into
+    # identical scores.
+    dur_raw = prof.get("durability")
+    dur_log = math.log10(dur_raw) if dur_raw and dur_raw > 0 else None
+    durability = _lin(dur_log, *ANCHORS["durability_log10"])
     effort = _lin(prof.get("winner_duration_s"), *ANCHORS["effort_seconds"])
 
     dims = {"entry": entry, "reward": reward,
@@ -377,6 +486,72 @@ def _rank_order(scored, level):
     rows = [(k, s[level]["composite"]) for k, s in scored.items()
             if s[level]["composite"] is not None]
     return [k for k, _ in sorted(rows, key=lambda x: -x[1])]
+
+
+def weight_sensitivity(scored, level="mid", alt_weightings=None):
+    """
+    How much does the composite RANKING move under different plausible
+    weightings of entry/reward/durability/effort?
+
+    This exists because "the weights are unvalidated" is a real,
+    recurring critique of this framework, and re-deriving them from
+    measured variance repeats the exact mistake that critique is
+    pointing at (variance is not the same claim as importance). What
+    CAN be checked without inventing a new formula: is the ranking this
+    framework produces fragile to the specific weight choice, or does it
+    survive a range of reasonable alternatives? A ranking that only holds
+    together under one particular weighting is much weaker evidence than
+    one that is stable across several.
+
+    Returns a list of dicts, one per alternative weighting: the
+    weighting itself, the rank correlation against the CURRENT weights
+    (WEIGHTS in this module), and which niche moved the most and by how
+    many places — because "the ranking is 92% stable" is much less
+    useful than knowing WHICH niche is the pivot case and why, which is
+    usually a real, explainable trade-off rather than noise. Re-run this
+    whenever WEIGHTS changes or the niche library grows, rather than
+    trusting a robustness check performed on a different pool.
+    """
+    import pandas as pd
+
+    dims = ("entry", "reward", "durability", "effort")
+    rows = {k: s[level] for k, s in scored.items()
+            if s[level].get("composite") is not None}
+    if len(rows) < 3:
+        return []
+
+    df = pd.DataFrame({k: {d: v.get(d) for d in dims} for k, v in rows.items()}).T
+    df = df.dropna()
+    if len(df) < 3:
+        return []
+
+    def composite(w):
+        wsum = sum(w.values())
+        return sum(df[d] * w[d] for d in dims) / wsum
+
+    base = composite(WEIGHTS).rank(ascending=False)
+
+    alt_weightings = alt_weightings or {
+        "equal (25/25/25/25)": {"entry": 25, "reward": 25, "durability": 25, "effort": 25},
+        "entry-heavy": {"entry": 40, "reward": 25, "durability": 20, "effort": 15},
+        "durability-heavy": {"entry": 25, "reward": 25, "durability": 35, "effort": 15},
+        "effort-zeroed": {"entry": 35, "reward": 35, "durability": 30, "effort": 0},
+    }
+
+    out = []
+    for name, w in alt_weightings.items():
+        rank = composite(w).rank(ascending=False)
+        rho = base.corr(rank, method="spearman")
+        shift = (base - rank).abs()
+        pivot = shift.idxmax() if len(shift) else None
+        out.append({
+            "weighting": name,
+            "weights": w,
+            "rank_correlation": round(float(rho), 3) if rho == rho else None,
+            "pivot_niche": pivot,
+            "pivot_niche_rank_shift": int(shift.max()) if len(shift) else 0,
+        })
+    return out
 
 
 def analyse(niche_keys, window=None):
@@ -446,7 +621,14 @@ _DIM_LABEL = {
     "entry": "room for a new channel",
     "reward": "what a hit is worth",
     "durability": "how long a video keeps earning",
-    "effort": "cost per video",
+    # Marked as a proxy in its own label, not just in a code comment,
+    # because this is read directly in the plain-language verdict and the
+    # report table header — the two places a person actually sees it.
+    # Video length correlates with production cost on average but is not
+    # the same thing (a long podcast can be cheap; a short edited video
+    # can be expensive), and that gap does not show up anywhere else in
+    # the rendered output unless it is said here.
+    "effort": "video length (a cost PROXY, not a direct measure)",
 }
 
 

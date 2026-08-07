@@ -58,16 +58,17 @@ history/<niche>/<date>/    archived previous builds
 
 Every file carries the name of what it describes — `ancient_history_365d_statistics.csv`, not `statistics.csv`. The folder tree already separates subjects, but the folder does not travel with the file: attach two niches' exports to one message and the second overwrites the first, and Excel refuses to open two workbooks of the same name at all. The window is included because a 365d and a 90d build of one niche collide just as badly as two different niches. Datasets built before this change keep loading under their old names and are renamed once at startup.
 
-## Modules (26)
+## Modules (29)
 
 ```
   angles              api_keys            baseline            calendars
-  channel             collector           compare             config
-  dashboard           discover            grader              insights
-  main                metrics             paths               quota_state
-  quota_tracker       report              seo                 shorts
-  signals             statistics          thumbnail_sheet     timing
-  trends              verdict
+  calibration         channel             collector           compare
+  config              coverage            crossniche          dashboard
+  discover            grader              insights            main
+  metrics             paths               quota_state         quota_tracker
+  report              seo                 shorts              signals
+  statistics          thumbnail_sheet     timing              trends
+  verdict
 ```
 
 ## Known limits

@@ -835,6 +835,41 @@ DEMAND_GROUP_WEIGHTS = {
     "consumption": 0.35,           # raw audience appetite
     "engagement_quality": 0.25,    # per-view affinity
 }
+# AUDITED against 11 real niches (cross-niche pooled baseline) — weights
+# left UNCHANGED, and here is why, since "we checked" is worth recording
+# the same way a fix would be.
+#
+# Discrimination (how much each group's score varies across niches):
+#     consumption            std 4.9   range 14.9  (55.4-70.3)
+#     engagement_velocity    std 8.1   range 24.5  (50.4-74.9)
+#     engagement_quality     std 10.3  range 30.5  (50.2-80.7)
+#
+# consumption discriminates least despite carrying the second-highest
+# weight — which is the same SHAPE of finding that justified reweighting
+# Tier 2's supply pillar. It was deliberately NOT treated the same way
+# here. Supply's flat metrics (uploads_per_creator, content_freshness)
+# had no economic reason to expect flatness and were plausibly just
+# under-informative. Consumption is different: it is the single most
+# direct measure of raw demand this pillar has, and its lower spread
+# across these particular 11 niches is at least as plausibly "these 11
+# niches happen to have similar baseline viewing appetite while engagement
+# style differs more" as it is "consumption matters less." Reweighting by
+# variance here would repeat the exact variance-is-not-importance mistake
+# already caught once this project. No construct-validity concern was
+# found for any of the three groups either (unlike verdict.py's effort
+# dimension) — all three are fairly direct operationalizations of what
+# they claim to measure.
+#
+# Redundancy check: correlation between the three group scores across the
+# 11 niches — all weak (max |r| = 0.52, consumption vs engagement_quality;
+# engagement_velocity correlates only 0.12 and -0.20 with the two groups
+# it is structurally built from). Despite being a literal product of a
+# consumption member and a quality member, engagement_velocity is not
+# tracking either closely in practice — real evidence it is capturing
+# something the other two do not, on this data.
+#
+# Conclusion: no dead metric, no strong redundancy. Nothing here shows
+# the pathology that justified the supply reweight. Left as-is.
 
 # Flat list retained for collection/reporting code that just needs to know
 # which columns are demand-related.
@@ -902,6 +937,20 @@ MOMENTUM_COMPONENT_WEIGHTS = {
 # --- Content Supply (niche-level, scored directionally: topic vs niche) ---
 # Higher score = MORE supply / saturation (worse for opportunity). Only
 # sample-size-invariant supply metrics are scored (see insights.supply_summary).
+#
+# A NOTE ON WHAT "SUPPLY" MEANS HERE
+# ------------------------------------
+# Two different things are bundled under this one label: content_freshness,
+# upload_acceleration, and uploads_per_creator measure literal supply — how
+# much new content is entering the market. median_subscribers and
+# channel_video_count (see grader._supply_pillar) measure something else —
+# incumbent SIZE and catalogue depth, i.e. how hard the existing players are
+# to outrank. That is a real and useful signal, but it is closer to
+# "competitive barrier strength" than to "supply" in the economic sense of
+# quantity being produced. Calling both "supply" was convenient but
+# imprecise; flagged explicitly rather than silently relied on, since a
+# reviewer asking "does median_subscribers really measure supply" deserves
+# an honest "not exactly — here is what it measures instead."
 SUPPLY_METRICS = {
     "content_freshness":   "higher",   # more fresh content = more active competition
     "upload_acceleration": "higher",   # supply speeding up = more pressure
@@ -910,6 +959,65 @@ SUPPLY_METRICS = {
 }
 # median_subscribers is read from the niche competition_summary; the rest
 # from supply_summary. Grader knows where each lives.
+#
+# WEIGHTS — not all five discriminate equally
+# --------------------------------------------
+# Measured across eleven real niches (their raw quantities, before
+# scoring), coefficient of variation between niches:
+#
+#     median_subscribers    CV 67%   <- varies enormously (86 to 1,180)
+#     channel_video_count   CV 57%   <- varies enormously (52 to 241)
+#     uploads_per_creator   CV 18%   <- nearly identical everywhere
+#     content_freshness     CV 15%   <- nearly identical everywhere
+#     upload_acceleration   CV 14%   <- nearly identical everywhere
+#
+# A first pass weighted upload_acceleration at 0.20 — second-highest —
+# on the reasoning that it is "the one change signal in supply", without
+# actually checking its CV. Measured afterward: 14%, as flat as
+# content_freshness. By this file's own stated logic that metric should
+# have been weighted like the other flat ones, not like the informative
+# ones. Corrected below. Worth naming rather than quietly fixing: it is
+# the exact mistake this weighting scheme exists to catch, just
+# committed on this scheme's own second metric before anyone checked it.
+#
+# WHAT CV DOES AND DOES NOT JUSTIFY
+# -----------------------------------
+# High cross-niche variance is not the same claim as "this metric matters
+# economically" — a metric could vary a lot for reasons unrelated to
+# competitive pressure. What CV DOES tell you: which inputs are actually
+# separating YOUR niches from each other right now, versus which ones
+# read the same everywhere and can only dilute whatever the separating
+# ones are saying. For the stated goal here — make the supply pillar
+# differentiate niches that are, by every raw measure, genuinely
+# differently supplied — that is the right question to be asking, even
+# though it is a calibration heuristic and not a causal model. Averaged
+# flat, the three near-constant metrics were outvoting the two that
+# actually carry signal, which is why supply's range collapsed to
+# 47.6-54.7 across all eleven niches while demand ranged 54-68.
+#
+# Both surviving high-weight metrics (median_subscribers,
+# channel_video_count) also have a direct causal story independent of
+# their CV — bigger incumbents and deeper catalogues are harder to
+# outrank — so their weight rests on two legs, not one. The three
+# downweighted metrics are not zeroed; a niche with a genuinely unusual
+# upload cadence still registers, just without three flat metrics
+# diluting the two that vary.
+#
+# PROVISIONAL: from eleven US-English niches at 365d. The CV numbers are
+# the evidence; the exact weights are a reasonable reading of it, to be
+# re-checked as the library grows.
+SUPPLY_METRIC_WEIGHTS = {
+    "median_subscribers":  0.42,
+    "channel_video_count": 0.32,   # incumbent catalogue depth (see note below)
+    "upload_acceleration": 0.10,
+    "uploads_per_creator": 0.10,
+    "content_freshness":   0.06,
+}
+# Note: channel_video_count is added to the supply signal here even
+# though it is not in SUPPLY_METRICS above — it is read directly from the
+# per-video data in _supply_scores, because it is the second-strongest
+# discriminator (CV 57%) and captures "how established are the channels
+# already here", which is core to contestability.
 
 # Momentum needs enough videos in its recent/prior windows to be meaningful.
 # Below this count in either window, momentum abstains rather than emitting a
@@ -922,6 +1030,35 @@ MOMENTUM_MIN_WINDOW_VIDEOS = 15
 # detect. Mirrors DEMAND_TAIL_WEIGHT in the grader.
 MOMENTUM_TAIL_WEIGHT = 0.40
 
+# How much demand_vs_supply_growth contributes at the WORST end of the
+# confidence scale — i.e. when the bootstrap interval is centred exactly
+# on 1.0, giving no evidence of direction either way.
+#
+# A first version used this as a binary switch (full weight if the CI
+# cleared 1.0, this floor otherwise). That treats a [1.09, 2.87] interval
+# and a [0.99, 2.24] interval as opposites, despite the underlying
+# evidence being nearly identical — both barely clear or barely miss the
+# same line. Replaced with a continuous confidence score (0..1, see
+# insights.momentum_summary's demand_growth_confidence) that scales
+# smoothly: this constant is now the floor of that scale, not a fixed
+# multiplier. A dead-centre interval still contributes this much, a
+# borderline one somewhat more, a tight and clearly-directional one
+# scales up toward full strength.
+#
+# Measured across eleven real niches: SIX had a binary-inconclusive
+# interval (ancient_history, excel_productivity, home_espresso,
+# homelab_networking, personal_psychology, space_exploration,
+# world_war_two) at 45/90-day windows — sample size was ruled out as the
+# cause (220-470 videos per window, well above
+# MOMENTUM_MIN_WINDOW_VIDEOS); the uncertainty is real, not thin data.
+#
+# The floor itself (0.15) is a judgement call, not a derived value —
+# named as such rather than implied to be statistically produced. It is
+# chosen to keep a faint signal (a dead-centre interval with a large
+# point estimate still nudges the score slightly) without a dead-centre
+# interval driving the score as hard as a confidently-directional one.
+MOMENTUM_INCONCLUSIVE_WEIGHT = 0.15
+
 # --- Opportunity derivation ---
 # opportunity = 50 + (demand_score - supply_score)/2, then nudged by momentum.
 # Momentum's pull on the derived opportunity score. Applied to momentum's
@@ -929,7 +1066,36 @@ MOMENTUM_TAIL_WEIGHT = 0.40
 # swing the old 0.30-on-(score-50) form did — (score-50) spanned only
 # +-50, while signed spans +-100. Leaving it at 0.30 after the switch to
 # signed input would have silently DOUBLED momentum's influence.
-OPPORTUNITY_MOMENTUM_INFLUENCE = 0.15   # ±15 pts at signed momentum ±100
+OPPORTUNITY_MOMENTUM_INFLUENCE = 0.15   # ±15 pts at signed momentum ±100 (theoretical max, rarely approached — see audit below)
+# AUDITED against 11 real niches, post the confidence-weighting fix (see
+# MOMENTUM_INCONCLUSIVE_WEIGHT) — weight left UNCHANGED.
+#
+# The "±15 pts at ±100" comment above describes the formula's behaviour
+# at momentum's theoretical extreme, not what real data produces. Worth
+# separating those: even before confidence-weighting existed, real
+# momentum on these 11 niches topped out near ±44, nowhere close to the
+# ±100 that would need a 10x swing in demand growth vs supply growth.
+# After confidence-weighting, the real range is narrower still: -21.1 to
+# +20.0, so momentum's ACTUAL contribution to the opportunity score
+# currently ranges -3.2 to +3.0 points, not the ±15 the constant's
+# comment implies as a design target.
+#
+# Checked whether that real contribution is doing meaningful, appropriately
+# -sized work rather than either dominating or being negligible:
+#
+#     imbalance term (demand-supply)/2 spread: 11.5 points
+#     momentum contribution spread:             6.2 points
+#
+# Momentum moves the score by roughly half as much as the demand/supply
+# imbalance does — present and noticeable (it is the deciding factor
+# between several close-ranked niches in the current 11-niche pool) but
+# not dominant. No redundancy either: momentum correlates weakly with
+# demand (r=-0.09), supply (r=+0.27), and their imbalance (r=-0.22) — it
+# is measuring something the other two pillars are not.
+#
+# Conclusion: no evidence the 0.15 weight is currently wrong. It was
+# never re-derived from real data — it remains a chosen constant, not a
+# measured one — but nothing found here argues for moving it.
 
 # 2×2 market verdict thresholds (on the 0–100 niche-relative pillar scores).
 VERDICT_HIGH = 55.0

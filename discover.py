@@ -481,6 +481,16 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
 
     clusters = build_clusters(ranked)
 
+    # How much of this build actually shares vocabulary with itself. A
+    # large unmatched share means the collection is probably broader than
+    # the niche, which inflates the spread reading for reasons that have
+    # nothing to do with the market. Warn, never filter — see coverage.py.
+    import coverage as _cov
+    cov = _cov.topic_coverage(ranked, clusters)
+    cov_note = _cov.coverage_note(cov)
+    if cov_note:
+        print(f"\n  ⚠️  {cov_note}")
+
     cols = [c for c in EXPORT_COLUMNS if c in ranked.columns]
     slim = ranked[cols].copy()
     slim.insert(0, "rank", range(1, len(slim) + 1))
@@ -524,17 +534,20 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
         json.dump(payload, f, indent=2, default=str)
 
     with open(paths["md"], "w", encoding="utf-8") as f:
-        f.write(_markdown_report(slim, clusters, niche_name))
+        f.write(_markdown_report(slim, clusters, niche_name, cov_note))
 
     return paths
 
 
-def _markdown_report(slim, clusters, niche_name) -> str:
+def _markdown_report(slim, clusters, niche_name, cov_note=None) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     n = len(slim)
 
     out = [f"# {niche_name} — Opportunity Discovery\n",
            f"Generated {ts} · {n} collected videos · {len(clusters)} topic clusters\n"]
+
+    if cov_note:
+        out.append(f"\n> ⚠️ **Topic coverage.** {cov_note}\n")
 
     out.append(f"""
 > **Analysis prompt — paste this file into Claude or ChatGPT:**

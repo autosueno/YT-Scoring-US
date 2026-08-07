@@ -42,6 +42,7 @@ import pandas as pd
 
 from config import DATASETS_DIR, EXPORTS_DIR
 from paths import split_window, WINDOW_SEP, locate, safe_name
+import calibration
 
 
 def list_all_niches():
@@ -86,7 +87,13 @@ def _row(key, meta):
     base, win = split_window(key)
     med_v = meta.get("median_views")
     p90_v = meta.get("p90_views")
+    p75_v = meta.get("p75_views")
+    # The legacy P90/median column is kept for continuity with older
+    # exports, but the RATIO used for judgement is P90/P75 — see
+    # calibration.py for why the median version fired the same label on
+    # 11 of 11 measured niches.
     spread = (p90_v / med_v) if (med_v and p90_v) else None
+    ratio = (p90_v / p75_v) if (p75_v and p90_v) else None
     return {
         "niche": base,
         "window": win or "?",
@@ -95,6 +102,8 @@ def _row(key, meta):
         "typical_views": med_v,
         "top10_views": p90_v,
         "spread": round(spread, 1) if spread else None,
+        "ratio": round(ratio, 2) if ratio else None,
+        "p75_views": p75_v,
         "typical_vph": meta.get("median_vph"),
         "top10_vph": meta.get("p90_vph"),
         "typical_engagement": meta.get("median_engagement"),
@@ -189,34 +198,52 @@ def build_table(window_filter="365d", keys=None):
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
-    return df.sort_values("spread", na_position="last").reset_index(drop=True)
+    # Sort by the ratio that drives the labels, not the legacy column —
+    # ordering a table by one metric while labelling it with another is
+    # how a reader ends up trusting the wrong number.
+    sort_col = "ratio" if df["ratio"].notna().any() else "spread"
+    return df.sort_values(sort_col, na_position="last").reset_index(drop=True)
 
 
 def calibrate(df):
     """
-    Derive spread thresholds from observed niches instead of assumption.
+    Derive spread thresholds from the user's OWN niches.
 
-    Returns None below five niches — thresholds from four points would
-    be a different guess wearing a number, which is no improvement on
-    the guess already in place.
+    Runs on the calibrated P90/P75 ratio, not the legacy P90/median.
+    The median version was found to fire the same label on every niche
+    measured, because in every one of them the median video is
+    effectively dead content — see calibration.py.
+
+    Returns None below five niches: thresholds from four points are a
+    different guess wearing a number, which is no improvement on the
+    packaged defaults.
 
     Boundaries land at the 33rd and 67th percentiles of what was
-    actually measured, so a third of real niches read as flat, a third
-    normal, a third winner-take-all. That is a statement about THIS
-    collection of niches, and it is only as representative as the
-    niches chosen.
+    measured here, so a third of these niches read gentle, a third
+    normal, a third brutal. That is a statement about THIS collection
+    and only as representative as the niches chosen — which is why the
+    packaged defaults exist as a fallback rather than the other way
+    round.
     """
-    spreads = pd.to_numeric(df.get("spread"), errors="coerce").dropna()
-    if len(spreads) < 5:
-        return None
-    return {
-        "n": int(len(spreads)),
-        "min": float(spreads.min()),
-        "p33": float(spreads.quantile(0.33)),
-        "median": float(spreads.median()),
-        "p67": float(spreads.quantile(0.67)),
-        "max": float(spreads.max()),
-    }
+    import calibration as _cal
+    out = {"metric": "P90/P75", "groups": {}}
+    ceil = pd.to_numeric(df.get("top10_views"), errors="coerce")
+    ratios_all = pd.to_numeric(df.get("ratio"), errors="coerce")
+
+    # Derived PER SIZE CLASS, because that is how the thresholds are
+    # applied. Pooling large and small together would produce boundaries
+    # that fit neither — which is exactly the mistake being corrected.
+    for label, mask in (("large", ceil >= _cal.CEILING_LARGE_MIN),
+                        ("small", ceil < _cal.CEILING_LARGE_MIN)):
+        r = ratios_all[mask].dropna()
+        if len(r) < 4:
+            continue
+        out["groups"][label] = {
+            "n": int(len(r)), "min": float(r.min()),
+            "p33": float(r.quantile(0.33)), "median": float(r.median()),
+            "p67": float(r.quantile(0.67)), "max": float(r.max()),
+        }
+    return out if out["groups"] else None
 
 
 def export_comparison(window_filter="365d", keys=None) -> dict:
@@ -260,57 +287,122 @@ def export_comparison(window_filter="365d", keys=None) -> dict:
                  "not finished separating from each other yet. Only "
                  "compare like with like.")
     L.append("")
-    L.append("| niche | window | videos | typical views | top 10% | spread | typical eng |")
+    L.append("| niche | window | videos | top 10% | market | decent→hit | reading |")
     L.append("|---|---|---|---|---|---|---|")
     for r in df.itertuples():
-        tv = f"{r.typical_views:,.0f}" if pd.notna(r.typical_views) else "—"
         t10 = f"{r.top10_views:,.0f}" if pd.notna(r.top10_views) else "—"
-        sp = f"{r.spread:.1f}x" if pd.notna(r.spread) else "—"
-        eng = (f"{r.typical_engagement:.2%}"
-               if pd.notna(r.typical_engagement) else "—")
+        ratio = getattr(r, "ratio", None)
+        size_band, _ = calibration.ceiling_band(
+            r.top10_views if pd.notna(r.top10_views) else None)
+        # Graded against peers of the same size — see calibration.py.
+        band, _ = calibration.spread_band(
+            ratio if pd.notna(ratio) else None, size_band or "small")
+        rng = calibration.spread_range_text(ratio if pd.notna(ratio) else None)
         name = r.niche + (" *(sliced)*" if r.derived else "")
-        L.append(f"| {name} | {r.window} | {r.videos:,} | {tv} | {t10} | {sp} | {eng} |")
+        L.append(f"| {name} | {r.window} | {r.videos:,} | {t10} | "
+                 f"{size_band or '—'} | {rng} | {band or '—'} |")
     L.append("")
+    L.append("> **market** is the size of the prize (top-10% views). "
+             "**decent→hit** is how far a solid video sits from a "
+             "breakout. They are independent — a small market can be "
+             "brutal and a large one gentle — so they are never combined "
+             "into a single score.")
+    L.append("")
+
+    L.append("## Thresholds in use")
+    L.append("")
+    L.append(f"Markets at or above {calibration.CEILING_LARGE_MIN:,} "
+             f"top-10% views are graded as **large**, the rest as "
+             f"**small** — and each size is judged on its OWN scale.")
+    L.append("")
+    L.append("| reading | large markets | small markets |")
+    L.append("|---|---|---|")
+    L.append(f"| gentle | below {calibration.LARGE_GENTLE_MAX:.1f}x "
+             f"| below {calibration.SMALL_GENTLE_MAX:.1f}x |")
+    L.append(f"| normal | {calibration.LARGE_GENTLE_MAX:.1f}x – "
+             f"{calibration.LARGE_BRUTAL_MIN:.1f}x "
+             f"| {calibration.SMALL_GENTLE_MAX:.1f}x – "
+             f"{calibration.SMALL_BRUTAL_MIN:.1f}x |")
+    L.append(f"| brutal | above {calibration.LARGE_BRUTAL_MIN:.1f}x "
+             f"| above {calibration.SMALL_BRUTAL_MIN:.1f}x |")
+    L.append("")
+    L.append(f"> Two scales, not one. Across the calibration set no large "
+             f"niche fell below 8.5x, so a single shared boundary made "
+             f"'gentle' unreachable for large markets while 4 of 7 small "
+             f"ones earned it. Large markets carry both more amateur "
+             f"uploads and bigger breakouts, so the decent-to-hit "
+             f"distance is wider throughout. Grading each size against "
+             f"its own peers is the only comparison a creator can act on. "
+             f"Large thresholds rest on just "
+             f"{calibration.SPREAD_CALIBRATION_LARGE_N} niches — "
+             f"provisional.")
+    L.append("")
+
+    if "top10_views" in df.columns:
+        big = df[pd.to_numeric(df.top10_views, errors="coerce")
+                 >= calibration.CEILING_LARGE_MIN]
+        sml = df[pd.to_numeric(df.top10_views, errors="coerce")
+                 < calibration.CEILING_LARGE_MIN]
+        L.append(f"Of these, {len(big)} large and {len(sml)} small.")
+        L.append("")
 
     cal = calibrate(df)
     if cal:
-        L.append("## Calibrated spread thresholds")
+        L.append("### Your own niches say")
         L.append("")
-        L.append(f"From {cal['n']} measured niches, ranging "
-                 f"{cal['min']:.1f}x to {cal['max']:.1f}x, median "
-                 f"{cal['median']:.1f}x.")
+        L.append("| size | n | range | your p33 | your p67 | packaged |")
+        L.append("|---|---|---|---|---|---|")
+        packaged = {"large": (calibration.LARGE_GENTLE_MAX,
+                              calibration.LARGE_BRUTAL_MIN),
+                    "small": (calibration.SMALL_GENTLE_MAX,
+                              calibration.SMALL_BRUTAL_MIN)}
+        drifted = False
+        for label, g in cal["groups"].items():
+            pg, pb = packaged[label]
+            if abs(g["p33"] - pg) > 2 or abs(g["p67"] - pb) > 2:
+                drifted = True
+            L.append(f"| {label} | {g['n']} | {g['min']:.1f}x–{g['max']:.1f}x "
+                     f"| {g['p33']:.1f}x | {g['p67']:.1f}x "
+                     f"| {pg:.1f}x / {pb:.1f}x |")
         L.append("")
-        L.append("| reading | spread |")
-        L.append("|---|---|")
-        L.append(f"| flat — steady returns, few breakouts | below {cal['p33']:.0f}x |")
-        L.append(f"| normal for YouTube | {cal['p33']:.0f}x to {cal['p67']:.0f}x |")
-        L.append(f"| winner-take-all | above {cal['p67']:.0f}x |")
-        L.append("")
-        L.append("> These come from the niches YOU built, so they describe "
-                 "that selection rather than YouTube at large. Boundaries "
-                 "sit at the 33rd and 67th percentiles of what was "
-                 "observed. To adopt them, replace the thresholds in "
-                 "report.print_niche_summary.")
+        if drifted:
+            L.append("> Your niches sit well away from the packaged "
+                     "thresholds. Either this selection is unusual, or "
+                     "the defaults need re-deriving — worth checking "
+                     "before trusting the labels above.")
+        else:
+            L.append("> Close to the packaged thresholds, which is mild "
+                     "evidence that both describe the same underlying "
+                     "population.")
         L.append("")
     else:
-        L.append("## Calibration")
+        L.append("### Your own niches")
         L.append("")
-        L.append(f"Needs at least 5 niches at this window; {len(df)} "
-                 f"available. Thresholds from fewer would be a different "
-                 f"guess rather than a measurement, so none are offered.")
+        L.append("Needs 4+ niches within a size class to check the "
+                 "defaults against your own data. The packaged "
+                 "thresholds above are in use.")
         L.append("")
 
     L.append("## How to read this")
     L.append("")
-    L.append("**Spread** is the climb from ordinary to good. A niche at "
-             "8x means a solid video earns eight times the median; at "
-             "120x, being ordinary earns almost nothing and only "
-             "breakouts matter.")
+    L.append("**decent→hit** is the climb from a solid video to a "
+             "breakout. At 4x, a decent video already earns a quarter of "
+             "what a hit earns and steady work compounds. At 13x it earns "
+             "under a tenth — being good is not enough, and almost "
+             "everything goes to breakouts.")
     L.append("")
-    L.append("**Low spread is not automatically better.** A flat niche is "
-             "predictable but has no ceiling — nothing there ever takes "
-             "off. A high spread is brutal but proves large outcomes are "
-             "possible.")
+    L.append("**Gentle is not automatically better.** A gentle market is "
+             "predictable but its ceiling is usually lower. A brutal one "
+             "is punishing but proves large outcomes are reachable. Read "
+             "it against the **market** column: a large brutal market is "
+             "a lottery with a real prize, a small gentle one is a steady "
+             "climb with a modest one.")
+    L.append("")
+    L.append("**The ratio is a band, not a point.** Contamination from "
+             "off-topic videos inflates it by ~38% at 20% contamination, "
+             "though it inflates every niche about equally, so the "
+             "ORDERING holds (rank correlation 0.96) even when the "
+             "absolute number drifts.")
     L.append("")
     L.append("**Check the build output for depth warnings** before "
              "trusting any spread here. A niche collected past its supply "

@@ -241,11 +241,52 @@ def grade_existing_niche(niche_name):
                          lookback_days=meta.get('lookback_days'))
     report.print_grade(result)
     try:
+        path = _save_grade_json(result, niche_name)
+        print(f"  Grade data      → {path}")
+    except Exception as e:
+        print(f"  (grade json skipped: {type(e).__name__}: {e})")
+    try:
         path = dashboard.export_dashboard(result, niche_name)
         print(f"\nVisual dashboard → {path}")
     except Exception as e:
         print(f"  (dashboard skipped: {type(e).__name__}: {e})")
     return result
+
+
+def _save_grade_json(result, niche_name):
+    """
+    Write the grade result to exports/<niche>/<window>/market/.
+
+    The pillar scores existed only in terminal output and inside rendered
+    HTML — readable by a person, not by anything else. That makes the
+    engine's central number, Opportunity, the one output that could not
+    be checked, compared across niches, or calibrated against, without
+    scraping markup.
+
+    JSON because these are numbers meant to be re-read. Everything the
+    grader computed is kept, including the pillar internals, since the
+    point is to be able to ask later why a score came out as it did.
+    """
+    import json as _json
+    from paths import export_dir_for, named
+    from config import EXPORTS_DIR
+
+    out_dir = export_dir_for(EXPORTS_DIR, niche_name, "market")
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, named(niche_name, "grade.json"))
+
+    payload = dict(result)
+    payload["_saved_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    def _plain(o):
+        """NumPy scalars and pandas types are not JSON-serialisable."""
+        if hasattr(o, "item"):
+            return o.item()
+        return str(o)
+
+    with open(path, "w", encoding="utf-8") as f:
+        _json.dump(payload, f, indent=2, default=_plain)
+    return path
 
 
 def show_niche(niche_name):
@@ -921,6 +962,48 @@ def _dispatch_compare():
     if deep:
         print(f"  → {deep}")
 
+    _dispatch_crossniche(keys)
+
+
+def _dispatch_crossniche(keys):
+    """
+    Offered at the end of option 10 — market pillars (demand/supply/
+    momentum/opportunity) graded against the OTHER niches selected,
+    rather than against each niche's own data.
+
+    Grading a niche against itself is arithmetic, not measurement: a
+    niche's own median sits at percentile 50 of itself by construction,
+    its own P90 at percentile 90, and the demand tail weight blends
+    those into the same number for every niche regardless of what the
+    market actually looks like. Verified on eleven real niches: all
+    eleven returned identical pillar scores. crossniche.py fixes this by
+    grading each niche against the others (leave-one-out).
+    """
+    if len(keys) < 4:
+        # calibration.py's TIER2_POOL_N context: fewer than ~4 niches
+        # makes "typical niche in the pool" too thin an idea to lean on,
+        # and crossniche.MIN_POOL_NICHES enforces the same floor.
+        return
+    print("\n  Market pillars (demand/supply/momentum/opportunity) can "
+          "also be graded\n  against each OTHER selected niche, rather "
+          "than against itself — no API\n  calls, reads what is already "
+          "on disk.")
+    if input(f"  Run it for these {len(keys)} niche(s)? [y/N]: ").strip().lower() != "y":
+        return
+    import crossniche as _xn
+    out = _xn.sweep_selected(keys)
+    if out.get("error"):
+        print(f"  Skipped: {out['error']}")
+        return
+    print()
+    t = out["table"].sort_values("opportunity", ascending=False)
+    print(f"  {'niche':<28}{'demand':>9}{'supply':>9}{'opp':>7}{'grade':>7}")
+    for r in t.itertuples():
+        print(f"  {r.niche[:27]:<28}{r.demand:>9.1f}{r.supply:>9.1f}"
+              f"{r.opportunity:>7.1f}{r.grade:>7}")
+    print(f"\n  Bands are relative to THIS pool of {len(keys)} niches and "
+          f"will shift as more are added — see calibration.py.")
+
 
 def _dispatch_verdict(keys, mismatch=None):
     """Optional deep pass at the end of option 10. Returns a path or None."""
@@ -1268,6 +1351,19 @@ def interactive():
         n = _pth.migrate_dataset_names(config.DATASETS_DIR, verbose=True)
         if n:
             print(f"  ({n} dataset file(s) renamed to include their niche)")
+    except Exception:
+        pass
+
+    # Backfill summary percentiles that older builds predate (P75, added
+    # for the calibrated spread reading). Metadata is a cache derived
+    # from videos.csv, so every number needed is already on disk — this
+    # costs no quota and no re-collection. Only missing keys are added;
+    # measured values are never overwritten.
+    try:
+        n = collector.backfill_all_metadata(verbose=False)
+        if n:
+            print(f"  ({n} niche(s) updated with percentiles computed from "
+                  f"existing data — no API calls)")
     except Exception:
         pass
 

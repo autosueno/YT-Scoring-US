@@ -135,19 +135,44 @@ def print_grade(result: dict):
     print()
 
 
-def print_niche_summary(meta: dict, df: pd.DataFrame):
-    """Print a niche metadata summary and a sample of top videos."""
-    name = meta.get("niche", "Unknown")
-    _header(f"NICHE DATABASE — {name}")
+def print_niche_summary(meta: dict, df: pd.DataFrame, niche_key: str = None):
+    """
+    Print a niche metadata summary and a sample of top videos, AND save it
+    to exports/<niche>/<window>/summary/.
 
-    print(f"  Query    : {meta.get('query', '—')}")
-    print(f"  Videos   : {meta.get('videos', 0):,}")
-    print(f"  Channels : {meta.get('channels', 0):,}")
-    print(f"  Built    : {_fmt_date(meta.get('created'))}")
-    print(f"  Schema v : {meta.get('database_schema_version', '—')}")
+    This was print-only for a long time — option 4's entire output lived
+    in the terminal scrollback and vanished the moment the window closed,
+    which is a real gap: this is the block that gets pasted into a chat
+    or kept for a record, and it was the one export nothing preserved.
+    Every OTHER report in this engine (breakouts, SEO, timing) writes to
+    exports/; this now matches that pattern rather than being the
+    exception.
+
+    niche_key is optional — passing it enables the save. Without it the
+    function still prints exactly as before, so every existing caller
+    keeps working unchanged.
+    """
+    lines = _build_niche_summary_lines(meta, df)
+    print("\n".join(lines))
+
+    if niche_key:
+        _save_niche_summary(niche_key, lines)
+
+
+def _build_niche_summary_lines(meta: dict, df: pd.DataFrame) -> list:
+    """The niche summary as a list of plain-text lines, print-formatted."""
+    name = meta.get("niche", "Unknown")
+    title = f"NICHE DATABASE — {name}"
+    line = "═" * (len(title) + 4)
+    L = [f"\n{line}", f"  {title}", line]
+    L.append(f"  Query    : {meta.get('query', '—')}")
+    L.append(f"  Videos   : {meta.get('videos', 0):,}")
+    L.append(f"  Channels : {meta.get('channels', 0):,}")
+    L.append(f"  Built    : {_fmt_date(meta.get('created'))}")
+    L.append(f"  Schema v : {meta.get('database_schema_version', '—')}")
 
     if meta.get("span_warning"):
-        print(f"\n  ⚠️  {meta['span_warning']}")
+        L.append(f"\n  ⚠️  {meta['span_warning']}")
 
     # Median AND top decile, because one number cannot describe a
     # distribution this skewed. The GAP between them is the useful part:
@@ -166,38 +191,100 @@ def print_niche_summary(meta: dict, df: pd.DataFrame):
         ("engagement", meta.get("median_engagement"), meta.get("p90_engagement")),
     ]
     have_p90 = any(p is not None for _, _, p in rows)
-    print("\n  Niche profile:")
+    L.append("\n  Niche profile:")
     if have_p90:
-        print(f"    {'':<12}  {'typical':>12}  {'top 10%':>12}   spread")
+        L.append(f"    {'':<12}  {'typical':>12}  {'top 10%':>12}   spread")
     for label, med, p90 in rows:
         if med is None:
             continue
         fmt = (lambda v: f"{v:.3%}") if label == "engagement" else (lambda v: f"{v:,.1f}")
         if p90 is None:
-            print(f"    {label:<12}: {fmt(med)}")
+            L.append(f"    {label:<12}: {fmt(med)}")
             continue
         ratio = (p90 / med) if med else 0
-        print(f"    {label:<12}: {fmt(med):>12}  {fmt(p90):>12}   {ratio:>5.1f}x")
+        L.append(f"    {label:<12}: {fmt(med):>12}  {fmt(p90):>12}   {ratio:>5.1f}x")
 
-    if have_p90 and meta.get("median_views") and meta.get("p90_views"):
-        r = meta["p90_views"] / meta["median_views"]
-        if r >= 15:
-            read = ("winner-take-all — a few videos take almost everything, "
-                    "so being average earns close to nothing")
-        elif r >= 6:
-            read = ("top-heavy, which is normal for YouTube — breakouts "
-                    "clearly happen here")
-        else:
-            read = ("unusually flat — steady returns, but little evidence "
-                    "of big breakouts to aim at")
-        print(f"\n    Spread reading: {read}.")
+    # Two independent axes, reported separately and never blended.
+    #
+    # HOW BIG is the prize (ceiling), and HOW BRUTAL is the sorting
+    # (spread). They do not track each other: personal_psychology has a
+    # small ceiling and a brutal spread; ancient_history has a large
+    # ceiling and a middling one. Averaging them into one verdict would
+    # destroy the only distinction a creator is actually choosing
+    # between — a big prize on a lottery, or a modest one on a steady
+    # climb.
+    #
+    # The old single reading used P90/median and fired "winner-take-all"
+    # on 11 of 11 measured niches. See calibration.py.
+    if have_p90 and meta.get("p90_views"):
+        import calibration
+
+        p75 = meta.get("p75_views")
+        if p75 is None and meta.get("median_views"):
+            # Built before P75 was stored. Rather than fall back to the
+            # discredited P90/median, say so — a wrong reading is worse
+            # than a missing one, and rebuilding is the honest fix.
+            L.append("\n    Spread reading: unavailable — this build "
+                     "predates the P75 measurement. Rebuild (option 1) "
+                     "for the calibrated reading.")
+            p75 = None
+
+        d = calibration.describe(meta["p90_views"], p75)
+        if d["ceiling_text"]:
+            L.append(f"\n    Market size   : {d['ceiling_text']}.")
+        if d["spread_text"]:
+            L.append(f"    Spread reading: {d['spread_text']} "
+                     f"({calibration.spread_range_text(d['ratio'])} from a "
+                     f"decent video to a hit).")
+        if d["decent_pay"]:
+            # The number that makes the grade concrete. "Brutal" means
+            # something very different at 27,000 views a decent video
+            # than at 2,500, and the band alone cannot say which.
+            L.append(f"    A decent video: ~{d['decent_pay']:,.0f} views "
+                     f"(better than 75% of the niche)")
+        if d["thin_calibration"]:
+            L.append(f"\n    ⓘ  Large-market thresholds rest on only "
+                     f"{calibration.SPREAD_CALIBRATION_LARGE_N} niches — "
+                     f"treat this reading as provisional.")
+        if d["warning"]:
+            L.append(f"\n    ⚠️  {d['warning']}")
 
     # Top-video table
     if not df.empty:
-        print(f"\n  Top {min(TERMINAL_MAX_ROWS, len(df))} videos by views/hour:")
-        _print_video_table(df)
+        L.append(f"\n  Top {min(TERMINAL_MAX_ROWS, len(df))} videos by views/hour:")
+        L.append(_video_table_text(df))
 
-    print()
+    L.append("")
+    return L
+
+
+def _save_niche_summary(niche_key: str, lines: list):
+    """
+    Write the summary to exports/<niche>/<window>/summary/, both as plain
+    text (matches the terminal exactly, safe to paste anywhere) and as
+    JSON (machine-readable, so a summary can be re-read without re-
+    parsing text — this is the file worth attaching for calibration or
+    any other cross-niche comparison).
+    """
+    import os
+    from config import EXPORTS_DIR
+    from paths import export_dir_for
+    try:
+        from paths import named
+    except ImportError:
+        # Older paths.py without the namespacing helper — fall back to a
+        # plain filename rather than fail the save outright.
+        def named(_key, filename):
+            return filename
+
+    out_dir = export_dir_for(EXPORTS_DIR, niche_key, "summary")
+    os.makedirs(out_dir, exist_ok=True)
+
+    txt_path = os.path.join(out_dir, named(niche_key, "summary.txt"))
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    print(f"\n  → saved to {txt_path}")
 
 
 def print_quota(tracker):
@@ -673,17 +760,24 @@ def _fmt_date(iso_str) -> str:
 
 
 def _print_video_table(df: pd.DataFrame):
+    text = _video_table_text(df)
+    if text:
+        print(text)
+
+
+def _video_table_text(df: pd.DataFrame) -> str:
+    """Same table as _print_video_table, returned as text instead of
+    printed, so print_niche_summary can both display and save it without
+    running the formatting logic twice."""
     cols = [c for c in SUMMARY_COLUMNS if c in df.columns]
     if not cols:
-        return
+        return ""
     sort_col = "views_per_hour" if "views_per_hour" in df.columns else cols[0]
     top = df.sort_values(sort_col, ascending=False).head(TERMINAL_MAX_ROWS)
 
-    # Build header
     col_widths = {c: max(len(c), 10) for c in cols}
     header = "  " + "  ".join(c.ljust(col_widths[c]) for c in cols)
-    print(header)
-    print("  " + "-" * (len(header) - 2))
+    lines = [header, "  " + "-" * (len(header) - 2)]
 
     for _, row in top.iterrows():
         cells = []
@@ -695,11 +789,11 @@ def _print_video_table(df: pd.DataFrame):
                 fmt = "Yes" if val else "No"
             else:
                 fmt = str(val)
-            # Truncate long strings (e.g. title)
             if len(fmt) > col_widths[c]:
                 fmt = fmt[:col_widths[c] - 1] + "…"
             cells.append(fmt.ljust(col_widths[c]))
-        print("  " + "  ".join(cells))
+        lines.append("  " + "  ".join(cells))
+    return "\n".join(lines)
 
 
 def format_indicator(key, value):

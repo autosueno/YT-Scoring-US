@@ -33,12 +33,12 @@ import math
 import insights
 from baseline import Baseline
 from config import (
-    SUPPLY_METRICS,
+    SUPPLY_METRICS, SUPPLY_METRIC_WEIGHTS,
     DEMAND_METRIC_GROUPS, DEMAND_GROUP_WEIGHTS,
     DEMAND_TAIL_WEIGHT, DEMAND_TAIL_PERCENTILE, DIRECTIONAL_LOG_SCALE,
     OPPORTUNITY_MOMENTUM_INFLUENCE, OPPORTUNITY_INDICATOR_KEYS,
     VERDICT_HIGH, VERDICT_LOW, GRADE_THRESHOLDS, MOMENTUM_GRADE_THRESHOLDS,
-    MOMENTUM_LOG_SCALE, MOMENTUM_COMPONENT_WEIGHTS,
+    MOMENTUM_LOG_SCALE, MOMENTUM_COMPONENT_WEIGHTS, MOMENTUM_INCONCLUSIVE_WEIGHT,
     TOPIC_GRADE_WINDOWS, TOPIC_GRADE_MIN_VIDEOS,
 )
 
@@ -184,7 +184,7 @@ def grade_niche(df, baseline: Baseline, niche: str,
 
 def _grade(df, baseline, name, kind, lookback_days=None):
     demand = _demand_pillar(df, baseline, lookback_days)
-    supply = _pillar(_supply_scores(df, baseline))
+    supply = _supply_pillar(df, baseline)
     momentum = _momentum_pillar(df, baseline, lookback_days)
 
     opportunity = _derive_opportunity(demand["score"], supply["score"], momentum)
@@ -329,7 +329,60 @@ def _supply_scores(df, baseline) -> dict:
         s = _directional_score(t, n, direction)
         if s is not None:
             scores[metric] = s
+
+    # channel_video_count — incumbent catalogue depth. The second-
+    # strongest discriminator between niches (CV 57%) and a direct read
+    # on "how established is the competition here", but it lives in the
+    # per-video frame rather than the supply/competition summaries, so it
+    # is scored here rather than in the SUPPLY_METRICS loop. Higher =
+    # deeper catalogues = harder to break in = more supply pressure.
+    if "channel_video_count" in df.columns:
+        t_cvc = float(df.groupby("channel_id")["channel_video_count"]
+                      .first().median())
+        n_cvc = (niche_comp.get("median_channel_video_count")
+                 or niche_supply.get("median_channel_video_count"))
+        # No stored niche reference (older baselines): compare against the
+        # pooled reference the cross-niche path supplies via the baseline
+        # frame's own median, which _directional_score handles as parity
+        # when equal. Fall back to skipping rather than inventing a number.
+        if n_cvc:
+            s = _directional_score(t_cvc, float(n_cvc), "higher")
+            if s is not None:
+                scores["channel_video_count"] = s
+
     return scores
+
+
+def _supply_pillar(df, baseline) -> dict:
+    """
+    Supply pillar with metric weighting.
+
+    _pillar() averages its inputs flat, which is right for demand groups
+    but wrong for supply: two of supply's metrics (uploads_per_creator,
+    content_freshness) are nearly constant across niches and, averaged
+    equally, dilute the two that actually vary (incumbent size and
+    catalogue depth). This applies SUPPLY_METRIC_WEIGHTS so the pillar
+    reflects the discriminating signal instead of drowning it.
+    """
+    scores = _supply_scores(df, baseline)
+    usable = {k: v for k, v in scores.items() if v is not None}
+    if not usable:
+        return {"score": 50.0, "grade": _letter_grade(50.0), "metrics": {}}
+
+    # Re-normalise weights over whichever metrics are present, so a
+    # missing metric redistributes its weight rather than silently
+    # dragging the score toward an implicit zero.
+    wsum = sum(SUPPLY_METRIC_WEIGHTS.get(k, 0.0) for k in usable)
+    if wsum > 0:
+        score = sum(v * SUPPLY_METRIC_WEIGHTS.get(k, 0.0)
+                    for k, v in usable.items()) / wsum
+    else:
+        score = sum(usable.values()) / len(usable)
+    return {
+        "score":   round(score, 1),
+        "grade":   _letter_grade(score),
+        "metrics": {k: round(v, 1) for k, v in usable.items()},
+    }
 
 
 # ============================================================
@@ -380,6 +433,9 @@ def _momentum_pillar(df, baseline, lookback_days=None) -> dict:
         "score": round(50.0 + signed / 2.0, 1),
         "grade": _momentum_letter_grade(signed),
         "abstained": False,
+        "demand_growth_conclusive": mom.get("demand_growth_conclusive"),
+        "demand_growth_confidence": mom.get("demand_growth_confidence"),
+        "demand_growth_ci": mom.get("demand_growth_ci"),
         "metrics": {k: round(v, 1) for k, v in signed_scores.items()},
         "weights": {k: MOMENTUM_COMPONENT_WEIGHTS.get(k, 0.0)
                     for k in signed_scores},
@@ -433,13 +489,31 @@ def _momentum_scores(df, baseline, lookback_days=None) -> dict:
     scores = {}
 
     dg, sg = mom.get("demand_growth"), mom.get("supply_growth")
+    confidence = mom.get("demand_growth_confidence")
     if dg is not None and sg is not None:
         s = _signed_log(dg, sg)
         if s is not None:
+            # Continuous confidence weighting (0..1) instead of a binary
+            # conclusive/inconclusive cutoff — see
+            # insights.momentum_summary's demand_growth_confidence for the
+            # derivation. A hard cutoff treated a [1.09, 2.87] interval
+            # and a [0.99, 2.24] interval as opposites despite nearly
+            # identical evidence; this scales smoothly instead, with the
+            # floor MOMENTUM_INCONCLUSIVE_WEIGHT still applied so a
+            # dead-centre interval (confidence 0) contributes a small,
+            # non-zero amount rather than being silenced outright.
+            if confidence is not None:
+                w = MOMENTUM_INCONCLUSIVE_WEIGHT + (
+                    (1.0 - MOMENTUM_INCONCLUSIVE_WEIGHT) * confidence)
+                s *= w
             scores["demand_vs_supply_growth"] = s
     elif dg is not None:
         s = _signed_log(dg, 1.0)
         if s is not None:
+            if confidence is not None:
+                w = MOMENTUM_INCONCLUSIVE_WEIGHT + (
+                    (1.0 - MOMENTUM_INCONCLUSIVE_WEIGHT) * confidence)
+                s *= w
             scores["demand_vs_supply_growth"] = s
 
     rbf, pbf = mom.get("recent_breakout_frequency"), mom.get("prior_breakout_frequency")

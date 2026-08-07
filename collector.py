@@ -1054,6 +1054,16 @@ def _save_metadata(display_name, query, df, tracker, diag, max_results, path, ki
         "p90_vph": float(df["views_per_hour"].quantile(0.90)) if "views_per_hour" in df.columns and not df.empty else None,
         "p90_views": float(df["view_count"].quantile(0.90)) if not df.empty else None,
         "p90_engagement": float(df["engagement_rate"].quantile(0.90)) if "engagement_rate" in df.columns and not df.empty else None,
+        # P75 — "a decent video", better than three quarters of the field.
+        #
+        # The spread reading compares a hit to THIS, not to the median.
+        # Across eleven measured niches the median video sits at 119-950
+        # views: content that never entered the market rather than content
+        # that competed and lost. Measuring a hit against it counted
+        # abandoned uploads, which is why every niche read the same.
+        # See calibration.py for the full derivation.
+        "p75_views": float(df["view_count"].quantile(0.75)) if not df.empty else None,
+        "p75_vph": float(df["views_per_hour"].quantile(0.75)) if "views_per_hour" in df.columns and not df.empty else None,
         "oldest_video_days": oldest_video_days,
         "newest_video_days": newest_video_days,
         "underflowed": diag["underflowed"],
@@ -1106,6 +1116,85 @@ def _print_summary(name, df, tracker, diag):
 
 def database_exists(niche_name):
     return os.path.exists(_videos_path(niche_name))
+
+
+def backfill_metadata(niche_name, verbose=False):
+    """
+    Recompute summary percentiles from videos.csv, offline.
+
+    Metadata is a CACHE of numbers derived from the dataset, not a
+    separate source of truth. When a new field is added — P75, for the
+    calibrated spread reading — older builds lack it, but the raw view
+    counts needed to compute it have been sitting in videos.csv all
+    along. There is no reason to spend quota re-collecting data we
+    already have; a percentile is just a different question asked of the
+    same numbers.
+
+    Only ADDS missing keys. Existing values are never overwritten, so a
+    build's recorded medians stay exactly as they were measured and this
+    cannot quietly rewrite history.
+
+    Returns the list of fields added, or [] if nothing was needed.
+    """
+    meta = load_metadata(niche_name)
+    if meta is None:
+        return []
+
+    wanted = {
+        "p75_views":  ("view_count", 0.75),
+        "p75_vph":    ("views_per_hour", 0.75),
+        "p90_views":  ("view_count", 0.90),
+        "p90_vph":    ("views_per_hour", 0.90),
+        "median_views": ("view_count", 0.50),
+        "median_vph": ("views_per_hour", 0.50),
+    }
+    missing = {k: v for k, v in wanted.items() if meta.get(k) is None}
+    if not missing:
+        return []
+
+    try:
+        df = load_database(niche_name)
+    except Exception:
+        return []
+    if df is None or df.empty:
+        return []
+
+    added = []
+    for key, (col, q) in missing.items():
+        if col not in df.columns:
+            continue
+        series = pd.to_numeric(df[col], errors="coerce").dropna()
+        if series.empty:
+            continue
+        meta[key] = float(series.quantile(q))
+        added.append(key)
+
+    if not added:
+        return []
+
+    meta["backfilled_fields"] = sorted(
+        set(meta.get("backfilled_fields") or []) | set(added))
+    try:
+        with open(_metadata_path(niche_name), "w", encoding="utf-8") as f:
+            json.dump(meta, f, indent=2)
+    except OSError:
+        return []
+    if verbose:
+        print(f"  {niche_name}: added {', '.join(added)}")
+    return added
+
+
+def backfill_all_metadata(verbose=True):
+    """
+    Backfill every built niche. Safe to run repeatedly — a niche with
+    nothing missing is skipped without being rewritten.
+    """
+    import compare as _cmp
+    total = 0
+    for key, _meta in _cmp.list_all_niches():
+        if backfill_metadata(key, verbose=verbose):
+            total += 1
+    return total
 
 
 def load_metadata(niche_name):
