@@ -298,10 +298,22 @@ def export_comparison(window_filter="365d", keys=None) -> dict:
     # Name the file after what it compares, not after a window that may
     # not even apply — two comparisons of different niche sets must not
     # overwrite each other, on disk or once attached to a message.
+    #
+    # BUG, FOUND AND FIXED: this used split_window(k)[0] — the bare niche
+    # name only, with the window stripped out. So comparing the SAME
+    # niches at 90d produced the IDENTICAL filename to comparing them at
+    # 365d, and the second comparison silently overwrote the first on
+    # disk. Invisible before option 10 could explicitly select a window;
+    # became trivial to trigger the moment it could. Fixed by folding the
+    # window into the stem — a single shared window gets a clean suffix,
+    # a mixed-window selection is named explicitly as such rather than
+    # picking one window's name and hiding the other.
     if keys:
         stem = "_vs_".join(safe_name(split_window(k)[0]) for k in keys[:3])
         if len(keys) > 3:
             stem += f"_and_{len(keys) - 3}_more"
+        win_set = {split_window(k)[1] or "nowindow" for k in keys}
+        stem += f"_{sorted(win_set)[0]}" if len(win_set) == 1 else "_mixedwindow"
     else:
         stem = f"compare_{window_filter or 'all'}"
     csv_path = os.path.join(out_dir, f"{stem}.csv")
