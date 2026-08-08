@@ -99,6 +99,29 @@ LARGE_BRUTAL_MIN = 13.1
 SMALL_GENTLE_MAX = 5.0
 SMALL_BRUTAL_MIN = 12.7
 
+# The four constants above are LABEL boundaries — tercile cut points,
+# meant so roughly a third of niches fall on each side, for the
+# gentle/normal/brutal three-way classification. A tercile cut point is
+# NOT the same thing as the population's own min/max, and using one as a
+# continuous 0-100 scoring anchor is a mistake with a real empirical
+# consequence, not a merely theoretical one: on the calibration
+# population itself, roughly a third of observations sit past a tercile
+# boundary BY CONSTRUCTION, so a scoring function anchored there tends
+# strongly toward clamping them — whether a given point actually clamps
+# still depends on the scoring direction and the exact implementation,
+# so "tends strongly toward" is the accurate claim, not "guarantees."
+# What is not in question is the measured outcome: found this exact bug
+# while building verdict.py's reliability dimension, which originally
+# reused LARGE_GENTLE_MAX/BRUTAL_MIN as _lin anchors directly — 7 of 11
+# niches came out clamped at or within a point of 0 or 100, checked
+# directly, not inferred. These two constants are the actual observed
+# range instead, for anything that needs a
+# continuous score rather than a three-way label.
+LARGE_RATIO_MIN = 8.45
+LARGE_RATIO_MAX = 13.53
+SMALL_RATIO_MIN = 4.31
+SMALL_RATIO_MAX = 13.53
+
 SPREAD_CALIBRATION_N = 11
 SPREAD_CALIBRATION_LARGE_N = 4
 SPREAD_CALIBRATION_SMALL_N = 7
@@ -138,6 +161,23 @@ def thresholds_for(size_band):
     if size_band == "large":
         return LARGE_GENTLE_MAX, LARGE_BRUTAL_MIN
     return SMALL_GENTLE_MAX, SMALL_BRUTAL_MIN
+
+
+def observed_range_for(size_band):
+    """
+    The (min, max) OBSERVED ratio for a market size — the population's
+    own extremes, with no margin applied here (callers scoring
+    continuously should add their own, the way every other anchor in
+    this project does; this function only reports what was measured).
+
+    Use this for continuous scoring. Use thresholds_for() for the
+    three-way gentle/normal/brutal label. They answer different
+    questions and are not interchangeable — see the comment above
+    LARGE_RATIO_MIN for the bug that happens when they are swapped.
+    """
+    if size_band == "large":
+        return LARGE_RATIO_MIN, LARGE_RATIO_MAX
+    return SMALL_RATIO_MIN, SMALL_RATIO_MAX
 
 
 def spread_band(ratio, size_band="small"):

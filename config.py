@@ -440,12 +440,34 @@ BREAKOUT_OUTLIER_WEIGHT = 0.25    # outlier_ratio percentile — vs own channel
 # accumulated the same overperformance slowly.
 #
 # It was briefly dropped entirely on the grounds that it correlates 0.704
-# with outlier_ratio. That was measured wrong. Regressing velocity on the
-# two components actually kept gives R-squared 0.868 — so 13% of it IS
-# unique information, and "correlated" is not the same as "redundant".
+# with outlier_ratio. That was measured wrong at the time. Regressing
+# velocity on the two components actually kept gives R-squared 0.868 —
+# so some of it IS unique information, and "correlated" is not the same
+# as "redundant". Re-adding it at reduced weight changed the top 20 by
+# exactly one video on the sample checked then — a real but small effect.
 #
-# But the practical effect is small: re-adding it at 0.15 changed the
-# top 20 by exactly one video. So it earns a real but minority weight.
+# RE-VERIFIED since, on a broader and more direct basis: across all 10
+# real niches this project has full breakout exports for, correlation
+# between outlier_ratio and breakout_velocity (percentile-ranked, the
+# form actually blended) measures 0.77-0.89 — consistently higher than
+# the 0.704 figure above, worth flagging as a real discrepancy rather
+# than smoothing over it, though the two numbers may not be directly
+# comparable (raw vs percentile-ranked, single sample vs ten). More
+# decisively: zeroing BREAKOUT_VELOCITY_WEIGHT entirely and comparing the
+# FULL resulting ranking (not just top-20 overlap) against the current
+# weighting gives a mean Spearman correlation of 0.9963 across all 10
+# niches (min 0.9947, max 0.9978) — velocity's current weight moves the
+# full breakout ranking by well under half a percentage point, on every
+# niche checked, not just some.
+#
+# CONCLUSION: the existing decision to keep a small, non-zero weight
+# rather than remove it holds up under this more rigorous check — it is
+# CONFIRMED, not newly justified. The weight is NOT changed as a result
+# of this verification. Recorded here so the next person checking this
+# doesn't have to re-run the same test from scratch, and so it's clear
+# this was actually re-examined against real data rather than assumed
+# still correct.
+#
 # Note that views_per_hour ALREADY encodes age (views divided by hours),
 # which is why velocity adds so little on top — the exploded-vs-
 # accumulated distinction is mostly visible there already.
@@ -599,6 +621,17 @@ CREATOR_SIZE_TIERS = [
     (100, 10_000, "small_creators"),   # 100-10k
     (10_000, None, "large_creators"),  # 10k+
 ]
+# VALIDATED against 10 real niches' full breakout exports. Checked
+# whether any tier goes empty or comes to dominate in a way that would
+# make the split useless for some niches:
+#
+#     new_creators    16%-37% of videos, across all 10 niches
+#     small_creators  27%-46%
+#     large_creators  30%-49%
+#
+# No niche has an empty or near-empty tier; no tier swallows the whole
+# distribution anywhere. Kept as-is — this is a case where checking
+# confirmed the existing boundaries rather than finding a problem.
 
 # Tiers for the breakout tables in topic + discovery reports. Different
 # question from CREATOR_SIZE_TIERS above (which is mechanistic — "does the
@@ -637,6 +670,18 @@ BREAKOUT_TIER_MIN_VIDEOS = 8
 # down until enough videos qualify and reports which floor it used, so
 # a relaxed threshold is visible rather than silent.
 BREAKOUT_MIN_VIEWS_LADDER = [10_000, 5_000, 2_000, 0]
+# VALIDATED against 10 real niches. Checked how far down the ladder each
+# niche actually needs to go to clear BREAKOUT_TIER_MIN_VIDEOS (8):
+#
+#     every one of the 10 niches clears the TOP rung (>=10,000 views)
+#     with at least 27 qualifying small-channel videos (max 124) — the
+#     ladder never once needed to relax to 5k, 2k, or 0 on real data.
+#
+# So the top floor is neither too strict (every niche clears it) nor
+# doing nothing (it is the floor actually used everywhere checked). The
+# lower rungs remain as an untested safety net for a thinner niche than
+# any of the 10 calibrated here — kept, not verified in the sense of
+# having been exercised, since no real niche so far has needed them.
 
 # ============================================================
 # BREAKOUT ERAS

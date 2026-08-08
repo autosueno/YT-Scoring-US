@@ -137,7 +137,7 @@ def split_eras(df: pd.DataFrame) -> dict:
             "videos": int(len(sub)),
             "skipped": False,
             "scored": scored,
-            "clusters": build_clusters(scored),
+            "clusters": build_clusters(scored, max_clusters=CLUSTER_MAX),  # curated: per-era markdown reading list
         }
     return eras
 
@@ -200,6 +200,40 @@ def score_breakouts(df: pd.DataFrame, baseline: Baseline) -> pd.DataFrame:
 # CLUSTERING (deterministic, phrase-based)
 # ============================================================
 
+def _is_historical_year(token, cutoff_years_back=10):
+    """
+    True for a 4-digit token that reads as a genuine historical date
+    rather than a current-year freshness suffix.
+
+    FOUND BY TESTING, NOT ASSUMED. Blanket-excluding every digit token
+    meant "june 1944", "day 1944", "normandy 1944" could never become
+    cluster candidates in a world_war_two build, however many videos or
+    channels used them — the year IS the content there, not filler. On
+    real data: 53 videos ("day explained"), 20 ("june 1944"), 14 ("day
+    1944") sat with under 25% overlap against every real cluster in the
+    niche, because the specific date that identifies the event (D-Day,
+    June 6 1944) was structurally invisible to clustering.
+
+    The blanket exclusion existed for a real reason too, not by
+    accident: "excel tutorial 2026", "review 2026" are not themes, they
+    are a title-freshness convention that would otherwise fragment
+    across every topic in every niche. So this does not simply allow
+    all digits — it allows a 4-digit token only when the year is more
+    than cutoff_years_back in the past, which lets through historical
+    dates (1944, 1969, 1865) while still excluding anything that could
+    plausibly be a current-form freshness tag (2020-2026 as of this
+    writing). Tested against the exact real cases this was built to fix
+    and the exact real cases it must continue to exclude.
+    """
+    if not (token.isdigit() and len(token) == 4):
+        return False
+    year = int(token)
+    if year < 1000 or year > 2099:
+        return False
+    from datetime import datetime
+    return (datetime.now().year - year) >= cutoff_years_back
+
+
 def _candidate_phrases(title):
     """
     Stopword-filtered n-gram phrases used as cluster seeds.
@@ -209,9 +243,13 @@ def _candidate_phrases(title):
     "latest news", "year old" are conversational filler, not topics — on
     real data they formed large, useless clusters, while every genuine
     topic cluster ("chip stocks", "gold silver") contained a content word.
+
+    Digit tokens are excluded UNLESS they read as a historical year — see
+    _is_historical_year for why and what real data justified the change.
     """
     tokens = [t for t in _tokenize(title)
-              if t not in _STOPWORDS and len(t) > 2 and not t.isdigit()]
+              if t not in _STOPWORDS and len(t) > 2
+              and (not t.isdigit() or _is_historical_year(t))]
     phrases = set()
     for n in CLUSTER_NGRAM_SIZES:
         for i in range(len(tokens) - n + 1):
@@ -222,7 +260,7 @@ def _candidate_phrases(title):
     return phrases
 
 
-def build_clusters(scored_df: pd.DataFrame) -> list:
+def build_clusters(scored_df: pd.DataFrame, max_clusters=None) -> list:
     """
     Group scored videos into recurring-topic clusters by shared title
     phrases, then rank clusters by evidence-weighted breakout strength.
@@ -230,6 +268,45 @@ def build_clusters(scored_df: pd.DataFrame) -> list:
     A cluster must contain >= CLUSTER_MIN_VIDEOS videos from
     >= CLUSTER_MIN_CHANNELS distinct channels — this is what separates a
     real market signal from one channel repeating itself.
+
+    max_clusters: truncate the returned list to this many, best-first.
+    Defaults to None — return every cluster that survives deduplication,
+    not CLUSTER_MAX.
+
+    THIS DEFAULT CHANGED, AND HERE IS THE BUG IT FIXES.
+    -----------------------------------------------------
+    This used to hard-truncate to CLUSTER_MAX (40) internally, and every
+    caller — including coverage.topic_coverage(), which measures what
+    share of a niche's videos matched no cluster — inherited that
+    truncated list with no way to ask for the full one.
+
+    Checked on a real 2,903-video build (ancient_history): 488 clusters
+    actually survive deduplication, comfortably clearing the same
+    CLUSTER_MIN_VIDEOS/CLUSTER_MIN_CHANNELS bar as the top 40. Measuring
+    coverage against only the top 40 reported 92.6% unmatched. Measuring
+    it against all 488 gives 10.8%. The true, defensible number is 10.8%
+    — the other 448 clusters were real, multi-channel-confirmed topics
+    that simply never got returned to anything downstream. A warning
+    built on the truncated number was overstating the problem by roughly
+    8-9x, on this niche.
+
+    Callers that want a short, curated list for a human or an AI to read
+    (a markdown "ideas to paste in" file, an SEO angle summary) should
+    pass max_clusters=CLUSTER_MAX explicitly — that curation is a real
+    and legitimate UX need. But nothing should inherit that truncation
+    silently, especially not a statistical measurement.
+
+    ON WHY max_clusters ISN'T PERCENTILE-BASED EITHER
+    ----------------------------------------------------
+    Checked whether a percentage of survivors would be more principled
+    than a fixed count: on real data the cluster_score distribution
+    declines smoothly from rank 10 to rank 200 with no natural gap or
+    elbow anywhere (81.1 -> 78.1 -> 76.3 -> ... -> 59.3). There is no
+    statistically defensible stopping point in that curve — a percentile
+    cutoff would be exactly as arbitrary as a fixed count, just a
+    different arbitrary number. So max_clusters stays an explicit,
+    named UX choice for callers that need a short list, not something
+    dressed up as more principled than it is.
     """
     if scored_df.empty or "title" not in scored_df.columns:
         return []
@@ -314,7 +391,7 @@ def build_clusters(scored_df: pd.DataFrame) -> list:
         })
 
     clusters.sort(key=lambda c: c["cluster_score"], reverse=True)
-    return clusters[:CLUSTER_MAX]
+    return clusters[:max_clusters] if max_clusters is not None else clusters
 
 
 # ============================================================
@@ -479,17 +556,29 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
     if ranked.empty:
         raise ValueError("No videos to export — dataset is empty.")
 
-    clusters = build_clusters(ranked)
+    # Full set, no truncation — this is what the coverage check and the
+    # CSV/JSON exports use. Truncating before the coverage check was the
+    # bug that made a niche's unmatched share look 8-9x worse than it
+    # really was; see build_clusters' docstring for the measured proof.
+    all_clusters = build_clusters(ranked, max_clusters=None)
+    # Curated subset for the markdown reading list only — a person or an
+    # AI reading 488 theme cards is not a realistic ask, and there is no
+    # statistically principled place to cut a smoothly-declining score
+    # curve, so this stays an explicit, named UX choice (see the
+    # docstring) rather than something dressed up as more rigorous.
+    clusters = all_clusters[:CLUSTER_MAX]
 
-    # How much of this build actually shares vocabulary with itself. A
-    # large unmatched share means the collection is probably broader than
-    # the niche, which inflates the spread reading for reasons that have
-    # nothing to do with the market. Warn, never filter — see coverage.py.
+    # How much of this build actually shares vocabulary with itself,
+    # measured against EVERY real cluster, not the markdown-curated
+    # subset — a large unmatched share here means the collection is
+    # probably broader than the niche (or, per coverage.py, that the
+    # content is on-topic but independently worded). Warn, never filter.
     import coverage as _cov
-    cov = _cov.topic_coverage(ranked, clusters)
+    cov = _cov.topic_coverage(ranked, all_clusters)
     cov_note = _cov.coverage_note(cov)
     if cov_note:
-        print(f"\n  ⚠️  {cov_note}")
+        indented = cov_note.replace("\n", "\n     ")
+        print(f"\n  ⚠️  {indented}")
 
     cols = [c for c in EXPORT_COLUMNS if c in ranked.columns]
     slim = ranked[cols].copy()
@@ -505,9 +594,13 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
     }
 
     slim.to_csv(paths["csv"], index=False)
-    if clusters:
+    # Full set, not the markdown-curated subset — a CSV is meant to be
+    # filtered and sorted externally (Excel, a spreadsheet), so there is
+    # no readability reason to silently drop 448 real clusters here the
+    # way there is for the markdown reading list.
+    if all_clusters:
         pd.DataFrame([{k: v for k, v in c.items() if k != "top_titles"}
-                      for c in clusters]).to_csv(paths["clusters_csv"], index=False)
+                      for c in all_clusters]).to_csv(paths["clusters_csv"], index=False)
     else:
         paths.pop("clusters_csv")
 
@@ -515,7 +608,8 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
         "niche": niche_name,
         "generated_utc": datetime.now(timezone.utc).isoformat(),
         "video_count": len(slim),
-        "cluster_count": len(clusters),
+        "cluster_count": len(all_clusters),
+        "clusters_shown_in_markdown": len(clusters),
         "breakout_score_definition": (
             f"{max(0.0, 1-BREAKOUT_VELOCITY_WEIGHT-BREAKOUT_DEMAND_WEIGHT):.0%} outlier_ratio + "
             f"{BREAKOUT_VELOCITY_WEIGHT:.0%} breakout_velocity + "
@@ -527,7 +621,8 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
             f"(evidence = log2(channels+1)/log2({CLUSTER_EVIDENCE_REFERENCE}+1)) — "
             "rewards repeated INDEPENDENT success over single outliers"
         ),
-        "clusters": clusters,
+        # Full set here too — the JSON is a data file, not a reading list.
+        "clusters": all_clusters,
         "videos": json.loads(slim.to_json(orient="records")),
     }
     with open(paths["json"], "w", encoding="utf-8") as f:
@@ -547,7 +642,8 @@ def _markdown_report(slim, clusters, niche_name, cov_note=None) -> str:
            f"Generated {ts} · {n} collected videos · {len(clusters)} topic clusters\n"]
 
     if cov_note:
-        out.append(f"\n> ⚠️ **Topic coverage.** {cov_note}\n")
+        quoted = "\n".join(f"> {line}" for line in cov_note.split("\n"))
+        out.append(f"\n> ⚠️ **Topic coverage.**\n{quoted}\n")
 
     out.append(f"""
 > **Analysis prompt — paste this file into Claude or ChatGPT:**

@@ -207,7 +207,7 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
         import paths as _paths
         topic_out = _paths.topic_export_dir(config.EXPORTS_DIR, topic, "packaging")
         scored = discover.score_breakouts(topic_df, baseline)
-        clusters = discover.build_clusters(scored)
+        clusters = discover.build_clusters(scored, max_clusters=config.CLUSTER_MAX)  # curated: SEO angle list is for reading
         # SEO report analyses what's working; tag generator hands you a
         # ready-to-use list. Different jobs — the first is diagnostic,
         # the second is the thing you paste into the upload form.
@@ -603,7 +603,7 @@ def discover_opportunities(niche_name):
     # SEO / packaging report — how the winners are packaged, not just what
     # they are about. Separate deliverable, separate file.
     scored = discover.score_breakouts(df, baseline)
-    clusters = discover.build_clusters(scored)
+    clusters = discover.build_clusters(scored, max_clusters=config.CLUSTER_MAX)  # curated: SEO angle list is for reading
     seo_paths = seo.export_seo_report(scored, clusters, niche_name)
     print("\nExported SEO & packaging report:")
     for fmt, p in seo_paths.items():

@@ -67,6 +67,7 @@ import pandas as pd
 from config import EXPORTS_DIR
 from paths import split_window, videos_path, safe_name
 import compare as _compare
+import calibration
 
 
 # ============================================================
@@ -145,16 +146,84 @@ ANCHORS = {
     # problem flagged when this framework was first reviewed. New anchor
     # covers observed range with margin above the real ceiling.
     "log_revenue": (1.93, 3.81),
+    # "reliability" is NOT listed here — it has no fixed anchor pair.
+    # It reuses calibration.py's already-measured, SIZE-AWARE P90/P75
+    # spread RANGE (calibration.observed_range_for — large markets
+    # 8.45x-13.53x, small markets 4.31x-13.53x; large and small are NOT
+    # the same scale) rather than inventing a second, parallel
+    # calibration of the same underlying ratio Tier 1 already derived
+    # from these same 11 niches. NOTE: this deliberately uses
+    # observed_range_for, not thresholds_for — the latter returns
+    # tercile LABEL boundaries, and using those as a continuous scoring
+    # anchor was tried first and produced 7 of 11 niches clamped at or
+    # near 0/100, because a tercile cut is designed so a third of the
+    # population sits past it. See _reliability_score below.
 }
 
 WEIGHTS = {
-    "entry": 0.32,        # can a newcomer rank at all
-    "reward": 0.32,       # what a win is worth
-    "durability": 0.27,   # does the catalogue compound
-    "effort": 0.09,       # cost per attempt — see note below
+    "entry": 0.29,          # can a newcomer rank at all
+    "reward": 0.29,         # what a win is worth
+    "durability": 0.24,     # does the catalogue compound
+    "reliability": 0.10,    # outcome-concentration proxy — see note below
+    "effort": 0.08,         # cost per attempt — see note below
 }
-# effort's weight was cut from 0.15 to 0.09 (redistributed proportionally
-# to the other three, which kept their relative ratio to each other).
+# reliability was added at 0.20, then CUT to 0.10 after review — worth
+# recording why the first number was wrong, not just the second one.
+#
+# The original justification claimed reliability "shares durability's
+# construct-validity profile: both are close to definitional
+# operationalizations of what they claim to measure." That claim was
+# checked by a reviewer and did not hold up. P90/P75 measures the gap
+# between a niche's upper-middle and top performers. Reliability was
+# defined here as "how predictable a good result is once a video clears
+# the decent bar" — a claim about REPEATABILITY that the ratio does not
+# directly establish. A niche could have a narrow P90/P75 gap because
+# outcomes are genuinely consistent, or because the whole distribution
+# above P75 is simply compressed for reasons unrelated to predictability.
+# Nothing in this project distinguishes those cases, because nothing
+# here has outcome data — repeat builds of the same niche over time,
+# or actual creator results — to check which explanation is true.
+# Durability's construct validity is stronger by comparison: "do old
+# videos still earn" is close to a direct reading of "does the catalogue
+# compound," with no comparable inferential gap.
+#
+# Also checked and corrected: the original note claimed weak Pearson
+# correlation (max |r|=0.22 against the other four dimensions) as
+# evidence reliability was "not a restatement" of anything else. With
+# n=11, that is not a safe inference — Pearson correlation is unstable
+# at this sample size, weak linear correlation does not rule out a
+# nonlinear or threshold relationship, and the correct claim is narrower:
+# no strong LINEAR correlation was found in THIS sample. That is evidence
+# against the most obvious kind of redundancy, not evidence of genuine
+# independence.
+#
+# Given both of those corrections, 0.10 treats reliability as a real,
+# kept signal — the underlying ratio is real, calibrated, and reused
+# rather than invented — while reflecting materially lower confidence
+# than durability, reward, or entry carry. This is closer to the
+# "secondary modifier, pending validation" treatment a reviewer proposed
+# than to treating it as equally trustworthy. If it is later checked
+# against real outcomes (repeat builds, actual channel results) and
+# holds up, raising the weight would be a decision with evidence behind
+# it — this is not that decision.
+#
+# Checked with weight_sensitivity() after adding: see that function's
+# docstring for what it tests and why. Also checked: the 8% margin
+# choice below barely moves anything — composite ranking held at
+# Spearman >=0.991 across margins from 0% to 15%, top-3 identical at
+# every margin tested. The margin is not doing the substantive work in
+# this dimension; the CONSTRUCT-VALIDITY gap above is what matters and
+# no margin choice fixes that.
+#
+# effort's weight was cut from 0.15 to 0.09 when this reasoning was
+# first written (redistributed proportionally to the other three, which
+# kept their relative ratio to each other). It has since moved again, to
+# 0.08, purely as a side effect of reliability's later reduction
+# returning weight to the other dimensions — not a second, independent
+# decision about effort's confidence. The reasoning below is about the
+# 0.15->0.09 cut specifically and still applies to why effort is
+# discounted at all; it does not need to be re-derived for every small
+# arithmetic shift since.
 #
 # THE REASON IS DELIBERATELY NOT DISCRIMINATIVE POWER.
 # ------------------------------------------------------
@@ -343,6 +412,7 @@ def deep_profile(niche_key):
                               if total_views else None)
     prof["gini"] = _gini(df["view_count"].values)
     prof["median_views"] = float(df["view_count"].median())
+    prof["p75_views"] = float(df["view_count"].quantile(0.75))
     prof["p90_views"] = p90
     prof["p99_views"] = float(df["view_count"].quantile(0.99))
     prof["max_views"] = float(df["view_count"].max())
@@ -416,6 +486,83 @@ def deep_profile(niche_key):
 # SCORING
 # ============================================================
 
+def _reliability_score(prof):
+    """
+    An outcome-concentration score, built from P90/P75 — reused from
+    calibration.py's Tier 1 spread work rather than a new measurement.
+
+    WHAT THIS ACTUALLY MEASURES, STATED CAREFULLY THIS TIME
+    -----------------------------------------------------------
+    This does NOT directly measure predictability or repeatability. It
+    measures the gap between a niche's upper-middle performers (P75) and
+    its top performers (P90). A narrow gap could mean outcomes are
+    genuinely consistent — or it could mean the whole upper distribution
+    is compressed for some other reason unrelated to repeatability.
+    Nothing in this project can currently tell those apart, because doing
+    so needs outcome data this project does not have: repeat builds of
+    the same niche over time, or actual tracked creator results. Calling
+    this "Reliability" outright was an unproven construct-validity leap,
+    caught by review, not resolved by this docstring — it is renamed in
+    spirit here (an outcome-concentration proxy) even though the field
+    name in code stays `reliability` for now, to avoid a larger,
+    separately-risky rename across every call site that reads it.
+
+    WHY THIS REUSES calibration.py INSTEAD OF BUILDING SOMETHING NEW
+    -------------------------------------------------------------------
+    An early review of this framework proposed a dimension along these
+    lines, using Gini as the example metric. Gini was tested during Tier
+    1 calibration and found nearly useless for this purpose: across 11
+    real niches it ranged 0.917-0.976, a band too narrow to discriminate
+    anything. What DID discriminate, on the same 11 niches, was P90/P75,
+    already computed, already calibrated, already SIZE-AWARE. Building a
+    second metric from scratch would either rediscover the same ratio
+    under a new name, or use a worse one (Gini) already tested and
+    rejected. This does not, on its own, establish that the ratio means
+    what a "reliability" label implies — see above.
+
+    WHY TIER 1 DIDN'T ALREADY SCORE ON THIS, IF IT'S USEFUL
+    -------------------------------------------------------------
+    Tier 1 uses this ratio to DESCRIBE a niche's market shape for a
+    person reading a summary — "gentle" or "brutal," a label, not a
+    score competing against other niches. Tier 4 SCORES niches against
+    each other for a composite ranking. The same measurement can serve
+    both jobs; using it for the second does not require it to have been
+    built for the second originally, but the jump from "useful label"
+    to "20%-weighted ranking input" was made too casually the first
+    time this was built, which is why the weight was cut afterward (see
+    WEIGHTS above).
+
+    NOT VALIDATED, STATED PLAINLY: no test in this project checks
+    whether a niche scoring high here actually produces more consistent
+    real-world results than one scoring low. The correlation check run
+    against the other four dimensions (max |r|=0.22) shows no strong
+    LINEAR relationship among 11 points — a real check, but a weak one at
+    this sample size, and it rules out simple redundancy without
+    establishing genuine independence. Treat this dimension as a kept,
+    real, but low-confidence signal, matching its reduced weight.
+
+    Returns None when p90/p75 aren't both available — same abstention
+    pattern as every other dimension here.
+    """
+    p90, p75 = prof.get("p90_views"), prof.get("p75_views")
+    if not p90 or not p75 or p75 <= 0:
+        return None
+    ratio = p90 / p75
+    size = calibration.ceiling_band(p90)[0] or "small"
+    lo, hi = calibration.observed_range_for(size)
+    # Margin outside the observed extremes, same pattern used for every
+    # other anchor in this file — contains the population rather than
+    # clipping it, and leaves room for a niche outside the current 11 to
+    # not immediately clamp. ~8% either side; the large group only has 4
+    # niches behind it, so this stays modest rather than inventing false
+    # precision on a thin sample.
+    margin = (hi - lo) * 0.08
+    worst, best = hi + margin, max(0.5, lo - margin)
+    # Inverted on purpose: LOWER ratio = MORE reliable, so the anchor
+    # pair is passed (worst, best) rather than (best, worst) to _lin.
+    return _lin(ratio, worst, best)
+
+
 def score_profile(prof, rpm, level="mid"):
     """
     Turn one profile into four dimension scores plus a composite, at one
@@ -459,9 +606,11 @@ def score_profile(prof, rpm, level="mid"):
     dur_log = math.log10(dur_raw) if dur_raw and dur_raw > 0 else None
     durability = _lin(dur_log, *ANCHORS["durability_log10"])
     effort = _lin(prof.get("winner_duration_s"), *ANCHORS["effort_seconds"])
+    reliability = _reliability_score(prof)
 
     dims = {"entry": entry, "reward": reward,
-            "durability": durability, "effort": effort}
+            "durability": durability, "reliability": reliability,
+            "effort": effort}
 
     # Re-normalise across whichever dimensions survived, so a niche is
     # not punished for a metric its dataset could not supply.
@@ -514,7 +663,7 @@ def weight_sensitivity(scored, level="mid", alt_weightings=None):
     """
     import pandas as pd
 
-    dims = ("entry", "reward", "durability", "effort")
+    dims = ("entry", "reward", "durability", "reliability", "effort")
     rows = {k: s[level] for k, s in scored.items()
             if s[level].get("composite") is not None}
     if len(rows) < 3:
@@ -532,10 +681,16 @@ def weight_sensitivity(scored, level="mid", alt_weightings=None):
     base = composite(WEIGHTS).rank(ascending=False)
 
     alt_weightings = alt_weightings or {
-        "equal (25/25/25/25)": {"entry": 25, "reward": 25, "durability": 25, "effort": 25},
-        "entry-heavy": {"entry": 40, "reward": 25, "durability": 20, "effort": 15},
-        "durability-heavy": {"entry": 25, "reward": 25, "durability": 35, "effort": 15},
-        "effort-zeroed": {"entry": 35, "reward": 35, "durability": 30, "effort": 0},
+        "equal (20/20/20/20/20)": {"entry": 20, "reward": 20, "durability": 20,
+                                    "reliability": 20, "effort": 20},
+        "entry-heavy": {"entry": 35, "reward": 20, "durability": 15,
+                         "reliability": 15, "effort": 15},
+        "durability-heavy": {"entry": 20, "reward": 20, "durability": 30,
+                              "reliability": 15, "effort": 15},
+        "reliability-heavy": {"entry": 20, "reward": 20, "durability": 15,
+                               "reliability": 35, "effort": 10},
+        "effort-zeroed": {"entry": 30, "reward": 30, "durability": 25,
+                           "reliability": 15, "effort": 0},
     }
 
     out = []
@@ -583,7 +738,7 @@ def analyse(niche_keys, window=None):
     # a single ranking would hide the only fact that matters.
     conflicts = []
     if len(profiles) >= 2:
-        for dim in ("entry", "reward", "durability", "effort"):
+        for dim in ("entry", "reward", "durability", "reliability", "effort"):
             vals = {k: scored[k]["mid"][dim] for k in profiles
                     if scored[k]["mid"][dim] is not None}
             if len(vals) < 2:
@@ -621,6 +776,12 @@ _DIM_LABEL = {
     "entry": "room for a new channel",
     "reward": "what a hit is worth",
     "durability": "how long a video keeps earning",
+    # Hedged in its own label, not just a code comment, for the same
+    # reason effort's label is hedged below — this is what a person
+    # actually reads. "How predictable" implies more than the underlying
+    # ratio (gap between upper-middle and top performers) has been shown
+    # to prove; a review caught this and the weight was cut accordingly.
+    "reliability": "outcome spread near the top (an unvalidated proxy)",
     # Marked as a proxy in its own label, not just in a code comment,
     # because this is read directly in the plain-language verdict and the
     # report table header — the two places a person actually sees it.
@@ -901,12 +1062,12 @@ def render_html(res):
              'provisional anchors, not to each other.</p>')
     H.append('<table><tr><th>niche</th>'
              + "".join(f'<th>{_DIM_LABEL[d]}</th>' for d in
-                       ("entry", "reward", "durability", "effort"))
+                       ("entry", "reward", "durability", "reliability", "effort"))
              + '<th class="num">overall</th></tr>')
     for k in order:
         s = S[k]["mid"]
         H.append(f'<tr><td><b>{disp[k]}</b></td>')
-        for d in ("entry", "reward", "durability", "effort"):
+        for d in ("entry", "reward", "durability", "reliability", "effort"):
             H.append(_bar(s[d], lead=(k == lead)))
         comp = f'{s["composite"]:.0f}' if s["composite"] is not None else "—"
         H.append(f'<td class="num"><b>{comp}</b></td></tr>')
