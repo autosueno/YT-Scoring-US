@@ -720,8 +720,9 @@ def _menu():
     print("  8) Tear down a single channel")
     print("  9) What changed since the last build")
     print(" 10) Compare all niches side by side")
-    print(" 11) Quit")
-    return input("\nChoose [1-11]: ").strip()
+    print(" 11) Regenerate stats/insights/metadata from an edited videos.csv")
+    print(" 12) Quit")
+    return input("\nChoose [1-12]: ").strip()
 
 
 def _dispatch(choice):
@@ -830,6 +831,18 @@ def _dispatch(choice):
         _dispatch_compare()
 
     elif choice == "11":
+        niche = _pick_niche("Niche name (the videos.csv should already be "
+                            "edited/replaced at its normal path): ")
+        if niche:
+            result = collector.regenerate_from_edited_videos(niche)
+            if result.get("error"):
+                print(f"\n  ⚠️  {result['error']}")
+                if result.get("missing"):
+                    print(f"      missing columns: {result['missing']}")
+                if result.get("hint"):
+                    print(f"      {result['hint']}")
+
+    elif choice == "12":
         return "quit"
 
     else:

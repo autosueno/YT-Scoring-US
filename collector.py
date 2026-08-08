@@ -1197,6 +1197,112 @@ def backfill_all_metadata(verbose=True):
     return total
 
 
+def regenerate_from_edited_videos(niche_name, verbose=True):
+    """
+    Rebuild statistics.csv, insights.json, and metadata.json from
+    whatever is currently sitting in videos.csv for this niche —
+    WITHOUT calling the API.
+
+    WHY THIS EXISTS
+    ----------------
+    option 1 collects raw data, which can carry contamination this
+    engine cannot fully filter at collection time (see the region/
+    language limitation documented in collector — regionCode restricts
+    VIEWABILITY, not origin or relevance, so off-topic content from
+    other countries can pass straight through a "US region" search).
+    A person may clean videos.csv externally — by hand, or by having an
+    AI review and drop contaminated rows — and REPLACE the file in
+    place at its normal path. Every downstream number (statistics.csv,
+    insights.json, metadata.json's percentiles) was computed from the
+    ORIGINAL, uncleaned file and does not know the replacement happened.
+    Re-collecting via option 1 would throw the cleanup away and likely
+    reintroduce the same contamination. This regenerates the three
+    derived files from the CSV as it currently exists on disk, with
+    zero API calls.
+
+    WHAT IS AND ISN'T SAFE TO ASSUME
+    -----------------------------------
+    videos.csv already carries every engineered column (outlier_ratio,
+    breakout_score, engagement_rate, small_creator, ...) from when it was
+    first collected — checked directly, all 108 columns survive a row-
+    level edit as long as no COLUMNS were removed. This function does
+    NOT re-run metrics.py's feature engineering; it assumes the existing
+    engineered columns are still valid for whatever rows remain, which
+    is true for a row-deletion cleanup and would NOT be true if someone
+    hand-edited view counts or added new videos with missing columns —
+    checked for and refused, not silently mishandled.
+
+    metadata.json's PROVENANCE fields (query, created date, collector
+    version, quota summary) describe the ORIGINAL collection and cannot
+    be honestly regenerated from a CSV alone, so they are preserved from
+    the existing metadata.json rather than invented. Only the fields
+    that are actually derivable from the data itself — counts,
+    percentiles — are recomputed. A new field, regenerated_from_edited_csv,
+    is added so this is never confused with a fresh, untouched build.
+    """
+    path = _videos_path(niche_name)
+    if not os.path.exists(path):
+        return {"error": "no_videos_csv", "path": path}
+
+    df = pd.read_csv(path, low_memory=False)
+    if df.empty:
+        return {"error": "empty_videos_csv", "path": path}
+
+    required = ["view_count", "channel_id", "views_per_hour"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        return {"error": "missing_engineered_columns", "missing": missing,
+                "hint": "This does not look like an engine-produced "
+                        "videos.csv with feature engineering already "
+                        "applied — regenerating from it would produce "
+                        "wrong statistics. Re-run option 1 instead if "
+                        "this file was hand-built rather than edited "
+                        "from a real export."}
+
+    import statistics as _stats
+    import insights as _insights
+
+    base_dir = os.path.dirname(path)
+    stem = os.path.splitext(os.path.basename(path))[0].replace("_videos", "")
+    stats_out = os.path.join(base_dir, f"{stem}_statistics.csv")
+    insights_out = os.path.join(base_dir, f"{stem}_insights.json")
+    meta_out = _metadata_path(niche_name)
+
+    _stats.save_statistics(df, stats_out)
+    _insights.save_insights(_insights.generate_insights(df), insights_out)
+
+    old_meta = load_metadata(niche_name) or {}
+    new_meta = dict(old_meta)  # preserve provenance fields untouched
+    new_meta.update({
+        "videos": len(df),
+        "channels": int(df["channel_id"].nunique()),
+        "median_views": float(df["view_count"].median()),
+        "p75_views": float(df["view_count"].quantile(0.75)),
+        "p90_views": float(df["view_count"].quantile(0.90)),
+        "median_vph": float(df["views_per_hour"].median()),
+        "p90_vph": float(df["views_per_hour"].quantile(0.90)),
+    })
+    if "engagement_rate" in df.columns:
+        er = df["engagement_rate"].dropna()
+        if not er.empty:
+            new_meta["median_engagement"] = float(er.median())
+            new_meta["p90_engagement"] = float(er.quantile(0.90))
+    new_meta["regenerated_from_edited_csv"] = True
+    new_meta["regenerated_at"] = datetime.now(timezone.utc).isoformat()
+
+    with open(meta_out, "w", encoding="utf-8") as f:
+        json.dump(new_meta, f, indent=2)
+
+    if verbose:
+        print(f"  Regenerated from {len(df):,} videos (edited CSV):")
+        print(f"    statistics → {stats_out}")
+        print(f"    insights   → {insights_out}")
+        print(f"    metadata   → {meta_out}")
+
+    return {"statistics": stats_out, "insights": insights_out,
+            "metadata": meta_out, "videos": len(df)}
+
+
 def load_metadata(niche_name):
     """
     Return parsed metadata, or None if it's missing/unreadable.
