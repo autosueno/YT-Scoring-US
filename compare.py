@@ -144,6 +144,46 @@ def preferred_keys(niche_filter=None):
     return [best[b] for b in sorted(best)]
 
 
+def available_windows():
+    """
+    Every distinct window with at least one built niche, longest first.
+
+    This exists because preferred_keys() always picks the longest window
+    per niche, silently. That is the right DEFAULT, but it also makes a
+    90d build permanently invisible to option 10 the moment a 365d build
+    of the same niche exists — there was no way to explicitly ask "show
+    me my 90d niches" at all. This is what lets the caller find out
+    whether that question is even worth asking (more than one window
+    actually exists) before asking it.
+    """
+    wins = set()
+    for key, _meta in list_all_niches():
+        _, win = split_window(key)
+        if win:
+            wins.add(win)
+    return sorted(wins, key=lambda w: -_window_days(f"x{WINDOW_SEP}{w}"))
+
+
+def keys_at_window(window, niche_filter=None):
+    """
+    One key per niche NAME that has a build at EXACTLY this window —
+    the explicit counterpart to preferred_keys()'s "always longest".
+
+    A niche with no build at this window is simply absent from the
+    result, not silently substituted with a different window the way
+    preferred_keys() would. Sorted for a stable, repeatable listing.
+    """
+    out = []
+    for key, _meta in list_all_niches():
+        base, win = split_window(key)
+        if win != window:
+            continue
+        if niche_filter and base not in niche_filter:
+            continue
+        out.append(key)
+    return sorted(out)
+
+
 def window_mismatch(keys):
     """
     Describe a comparison that spans different collection windows.

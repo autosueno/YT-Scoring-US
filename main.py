@@ -845,13 +845,34 @@ def _dispatch_compare():
     only build is 90d vanishes entirely from a 365d comparison, which is
     how two perfectly good builds can produce "no niches found").
 
-    So: list what actually exists, default to the LONGEST window of each
-    niche, and let the choice be made explicitly.
+    Two steps now, where there used to be one. If more than one window
+    has anything built, ask which window first — otherwise a 90d build
+    was permanently invisible the moment a 365d build of the same niche
+    existed, with no way to ask for it explicitly. Then list what's
+    built at the chosen window and let the specific niches be picked.
     """
     import compare as _cmp
     import pandas as pd
 
-    keys = _cmp.preferred_keys()
+    # If more than one window has built niches, ask which one first.
+    # Without this, preferred_keys() always picks the longest window per
+    # niche silently — a 90d build becomes permanently invisible to this
+    # option the moment a 365d build of the same niche exists, with no
+    # way to explicitly ask "show me my 90d niches instead". Skipped
+    # entirely when only one window exists, since there is nothing to
+    # choose between.
+    windows = _cmp.available_windows()
+    chosen_window = None
+    if len(windows) > 1:
+        print(f"\n  You have niches built at more than one window: "
+              f"{', '.join(windows)}.")
+        pick = input(f"  Compare which window? ({'/'.join(windows)} — "
+                     f"Enter for {windows[0]}, the longest): ").strip()
+        chosen_window = pick if pick in windows else windows[0]
+        keys = _cmp.keys_at_window(chosen_window)
+    else:
+        keys = _cmp.preferred_keys()
+
     if not keys:
         print("\n  No built niches found in datasets/.")
         print("  Option 1 builds one. If you have built niches already,")
@@ -873,9 +894,10 @@ def _dispatch_compare():
                         key=lambda w: -(int(w[:-1]) if w and w[:-1].isdigit() else 0))
         extra = f"   (also built at {', '.join(others)})" if others else ""
         print(f"    {i:>2}) {base:<28} {win or '—':>6}{extra}")
-    print("\n  Longest window is pre-selected for each niche — a 365d "
-          "build\n  rests on more date slices than a 90d one, so its "
-          "percentiles\n  are the steadier measurement.")
+    if chosen_window is None:
+        print("\n  Longest window is pre-selected for each niche — a 365d "
+              "build\n  rests on more date slices than a 90d one, so its "
+              "percentiles\n  are the steadier measurement.")
 
     # The example must use numbers that actually exist. Suggesting
     # "1,3,4" when only two niches are listed invites a selection that
