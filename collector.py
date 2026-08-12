@@ -69,6 +69,7 @@ import pandas as pd
 
 import metrics
 from api_keys import ApiKeyManager, AllKeysExhausted
+from googleapiclient.errors import HttpError
 from statistics import save_statistics
 from insights import generate_insights, save_insights
 from config import (
@@ -165,7 +166,13 @@ def _search_video_ids(keys, query, max_results, order, tracker,
             params["publishedBefore"] = published_before
 
         tracker.charge("search.list")
-        response = keys.execute(lambda yt: yt.search().list(**params))
+        # No on_give_up here: _execute_resilient re-raises the original
+        # HttpError directly once retries are exhausted, which is exactly
+        # this function's existing documented behaviour for
+        # AllKeysExhausted too ("Raises... caller handles gracefully") —
+        # a transient error that survives retries gets the same shape of
+        # failure, not a new, silent one.
+        response = _execute_resilient(keys, lambda yt: yt.search().list(**params))
         items = response.get("items", [])
         for item in items:
             vid = item["id"]["videoId"]
@@ -295,6 +302,76 @@ def _search_windowed(keys, query, max_results, order, tracker,
     return ordered_ids[:max_results]
 
 
+_TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
+_TRANSIENT_REASONS = {"backendError", "internalError"}
+
+
+def _is_transient_error(err: HttpError) -> bool:
+    """
+    True for a server-side hiccup worth retrying — a 5xx status, or
+    Google's own "backendError"/"internalError" reasons. NOT for a 4xx:
+    those mean something about the REQUEST is wrong (bad ID, malformed
+    param), and retrying an identical bad request just fails identically
+    again. Deliberately separate from api_keys._is_quota_error, which
+    covers a different, non-overlapping class (403/429, quota-specific)
+    that execute() already retries by rotating keys — this function is
+    for the class execute() explicitly does NOT handle and says so:
+    "Non-quota HttpErrors propagate unchanged."
+
+    Real-world trigger for building this at all: a topic collection that
+    had already found 1,268 videos crashed outright on ONE batch of 50
+    videos hitting a transient 500 ("Internal error encountered",
+    reason "backendError") from Google's own infrastructure — nothing
+    wrong with the request, nothing wrong with any key, just a one-off
+    server hiccup, and it took the entire run down with it because
+    nothing between here and the top-level menu loop caught anything but
+    quota exhaustion.
+    """
+    if err.resp is not None and err.resp.status in _TRANSIENT_STATUS_CODES:
+        return True
+    body = (err.content or b"").decode("utf-8", errors="ignore")
+    try:
+        payload = json.loads(body)
+        reasons = {e.get("reason") for e in
+                  payload.get("error", {}).get("errors", []) if isinstance(e, dict)}
+        return bool(reasons & _TRANSIENT_REASONS)
+    except (ValueError, AttributeError):
+        return any(r in body for r in _TRANSIENT_REASONS)
+
+
+def _execute_resilient(keys, make_request, max_retries=3, backoff_base=1.5,
+                       on_give_up=None):
+    """
+    keys.execute() wrapped with retry-with-backoff for TRANSIENT server
+    errors specifically — quota errors still go through execute()'s own
+    key-rotation logic unchanged; this only adds handling for the class
+    execute() deliberately leaves alone.
+
+    On exhausting retries for a genuinely transient error, calls
+    on_give_up() if given (for a caller that wants to skip gracefully —
+    e.g. drop this one batch and keep the rest, the same pattern already
+    used for quota exhaustion) and returns None instead of raising. A
+    non-transient HttpError (a real problem with the request) still
+    raises immediately, same as before this existed — retrying a bad
+    request is not a fix for it.
+    """
+    for attempt in range(max_retries):
+        try:
+            return keys.execute(make_request)
+        except HttpError as err:
+            if not _is_transient_error(err):
+                raise
+            if attempt == max_retries - 1:
+                if on_give_up:
+                    on_give_up(err)
+                    return None
+                raise
+            wait = backoff_base * (2 ** attempt)
+            print(f"    ⚠️  Transient server error ({err.resp.status if err.resp else '?'}) "
+                  f"— retrying in {wait:.1f}s ({attempt + 1}/{max_retries})...")
+            time.sleep(wait)
+
+
 def _download_video_details(keys, video_ids, tracker):
     """
     Download details in batches of 50, appending batch by batch. On quota
@@ -308,12 +385,25 @@ def _download_video_details(keys, video_ids, tracker):
         batch = video_ids[i:i + 50]
         try:
             tracker.charge("videos.list")
-            response = keys.execute(
+            gave_up = []
+            response = _execute_resilient(
+                keys,
                 lambda yt: yt.videos().list(
                     part="snippet,statistics,contentDetails,topicDetails",
                     id=",".join(batch)
-                )
+                ),
+                on_give_up=lambda err: gave_up.append(err)
             )
+            if response is None:
+                # Retries exhausted on a transient error — this ONE batch
+                # (up to 50 videos) is lost, not the whole collection.
+                # Same graceful-degradation shape as quota exhaustion
+                # below: keep what's already gathered, move on.
+                print(f"    ⚠️  Batch {i//50 + 1} failed after retries "
+                      f"({gave_up[0] if gave_up else 'transient error'}) "
+                      f"— skipping this batch of {len(batch)}, continuing "
+                      f"with the rest.")
+                continue
         except AllKeysExhausted:
             print(f"    Quota exhausted during video downloads — keeping "
                   f"{len(video_rows)} of {len(video_ids)} videos gathered so far.")
@@ -370,9 +460,18 @@ def _download_channel_details(keys, channel_ids, tracker):
         batch = ids[i:i + 50]
         try:
             tracker.charge("channels.list")
-            response = keys.execute(
-                lambda yt: yt.channels().list(part="statistics", id=",".join(batch))
+            gave_up = []
+            response = _execute_resilient(
+                keys,
+                lambda yt: yt.channels().list(part="statistics", id=",".join(batch)),
+                on_give_up=lambda err: gave_up.append(err)
             )
+            if response is None:
+                print(f"    ⚠️  Channel batch {i//50 + 1} failed after "
+                      f"retries ({gave_up[0] if gave_up else 'transient error'}) "
+                      f"— skipping this batch of {len(batch)}, continuing "
+                      f"with the rest.")
+                continue
         except AllKeysExhausted:
             print(f"    Quota exhausted during channel downloads — keeping "
                   f"{len(channel_rows)} of {len(ids)} channels gathered so far.")
@@ -647,9 +746,13 @@ def search_depth_diagnostic(df, rank_map, exhausted, verbose=True):
 
 
 def _collect_raw(api_key, query, max_results, order, tracker,
-                 lookback_days=None):
+                 lookback_days=None, topic_mode=False):
     """
     Multi-seed, quota-resilient collection.
+
+    topic_mode: when True, per-seed key assignment restricts itself to
+    the reserved tail keys (api_keys.topic_key_chain) instead of the
+    general build pool. Set by collect_topic — see that function.
 
     `query` may be one seed ("finance") or several ("finance, investing,
     economics" or a list). The target is split across seeds; each seed is
@@ -735,9 +838,11 @@ def _collect_raw(api_key, query, max_results, order, tracker,
                 # under-supplied run (fewer than 2 build keys per seed) is
                 # visible at the top of the log instead of being inferred
                 # from a cascade thirty lines later.
-                print(keys.capacity_note(len(seeds)))
-            ok = keys.use_key_for_seed(seed_index, n_seeds=len(seeds))
-            chain = keys.seed_key_chain(seed_index, len(seeds))
+                print(keys.capacity_note(len(seeds), topic_mode=topic_mode))
+            ok = keys.use_key_for_seed(seed_index, n_seeds=len(seeds),
+                                       topic_mode=topic_mode)
+            chain = (keys.topic_key_chain(seed_index, len(seeds)) if topic_mode
+                     else keys.seed_key_chain(seed_index, len(seeds)))
             if not ok:
                 print(f"  → seed {seed!r} SKIPPED — its keys ("
                       + ", ".join(f"#{k + 1}" for k in chain)
@@ -1197,6 +1302,60 @@ def backfill_all_metadata(verbose=True):
     return total
 
 
+def save_seed_query_history(niche_name, query):
+    """
+    Remember the real seed queries used for a niche, in a shared file
+    OUTSIDE that niche's own folder — see paths.seed_query_history_path
+    for why that separation matters (survives the niche folder itself
+    being deleted or rebuilt with a worse fallback query).
+
+    Keyed on the BASE niche name (window stripped), since the same seed
+    queries apply regardless of which window a build used them at —
+    ancient_history@90d and ancient_history@365d were built from the
+    same intent, and a rebuild of either should offer the same history.
+    """
+    from paths import seed_query_history_path, split_window
+    base, _ = split_window(niche_name)
+    path = seed_query_history_path()
+    history = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                history = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            history = {}
+    history[base] = {
+        "query": query,
+        "saved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(history, f, indent=2)
+    except OSError:
+        pass  # best-effort — a failed save here should never block a build
+
+
+def load_seed_query_history(niche_name):
+    """
+    The last known real seed queries for a niche, or None if none were
+    ever recorded. Returns just the query string, not the timestamp —
+    callers that want the timestamp too should read the file directly.
+    """
+    from paths import seed_query_history_path, split_window
+    path = seed_query_history_path()
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            history = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    base, _ = split_window(niche_name)
+    entry = history.get(base)
+    return entry.get("query") if entry else None
+
+
 def regenerate_from_edited_videos(niche_name, verbose=True):
     """
     Rebuild statistics.csv, insights.json, and metadata.json from
@@ -1367,7 +1526,34 @@ def build_niche_database(api_key, niche_name, query=None, max_results=None,
     """
     _ensure_folders()
     max_results = max_results or NICHE_DATABASE_SIZE
-    query = query or niche_name
+    # Persist the REAL query before falling back — the fallback itself
+    # (the bare niche name) is not worth remembering; it is what a
+    # missing history produces, not something to feed back into it.
+    if query:
+        save_seed_query_history(niche_name, query)
+    if not query:
+        # FOUND WHILE TESTING THE HISTORY FEATURE ABOVE: this used to
+        # fall back to the raw niche_name UNCHANGED, which for a
+        # windowed key like "ancient_history@365d" means searching
+        # YouTube for the literal string "ancient_history@365d" — a
+        # malformed query that would return nothing useful, not even
+        # the weak-but-working single-term search the fallback is
+        # supposed to provide. Strip the window suffix first.
+        #
+        # FOUND ON A REAL RUN, SEPARATELY: stripping the window still
+        # left "ancient_history" — the internal snake_case identifier,
+        # underscore included — as the literal search term. Almost no
+        # real video title contains a literal underscore between words,
+        # so this searches for something close to nothing, burning
+        # search.list calls trying to find sparse matches. One real
+        # build on this exact fallback spent 16,555 units (over a full
+        # key's daily budget) and still landed at only 1,080 of a 3,000
+        # target. Converting the underscore to a space turns this into
+        # the natural-language phrase a person would actually type —
+        # still a weak single-term fallback compared to real seed
+        # queries, but a functional one instead of a near-empty search.
+        from paths import split_window
+        query = split_window(niche_name)[0].replace("_", " ")
 
     # NOTE: the previous dataset is NOT archived here. Archiving before
     # collecting destroyed a perfectly good dataset whenever the new build
@@ -1490,49 +1676,72 @@ def collect_topic(api_key, topic, max_results=None, order=None, tracker=None,
 
     Quota cost at the default TOPIC_SAMPLE_SIZE=500: ~1,010-1,020
     units EVERY call, including repeats of the same topic.
+
+    THE WALL THIS LIFTS, AND WHY IT'S SAFE HERE SPECIFICALLY: internally,
+    a seed's assigned keys are a hard boundary (_seed_chain +
+    SEED_CHAIN_STRICT) — once they're spent, that seed stops rather than
+    reaching into a SIBLING seed's dedicated pair. That isolation exists
+    to protect one niche-build seed's search budget from another. Topic
+    grading has no sibling: it is always exactly one seed, using its own
+    dedicated reserved pair (#11/#12), assigned by topic_key_chain. Once
+    BOTH of those are dead, there is nothing left to isolate it from —
+    the 10 build keys are just sitting idle. Without lifting the wall
+    here, exhausting the reserved pair mid-run raises AllKeysExhausted
+    even though those 10 keys are fully available, which is exactly the
+    "loop for the nearest available key" behavior that was asked for and
+    was not actually happening — topic_key_chain's fallback only covered
+    the case where BOTH keys were ALREADY dead before the run started,
+    not dying partway through. unchained() already exists for a related
+    but narrower reason (letting cheap enrichment calls draw on the
+    general pool); this reuses it for the WHOLE topic-grading operation,
+    search included, because the reason it stayed narrow before —
+    protecting a sibling seed — does not apply to an operation that only
+    ever has one seed.
     """
     _ensure_folders()
     max_results = max_results or TOPIC_SAMPLE_SIZE
+    keys = _resolve_keys(api_key)
 
     tracker = tracker or QuotaTracker()
     units_before = tracker.summary()["used"]
     start_time = time.time()
 
-    print(f"Collecting topic: {topic!r} ({max_results} videos)")
-    order = order or SEARCH_ORDER
-    collect_target = int(max_results * COLLECTION_OVERSHOOT)
-    df, _ = _collect_raw(api_key, topic, collect_target, order, tracker,
-                         lookback_days=lookback_days)
-    _rank = df.attrs.get("rank_map") if hasattr(df, "attrs") else None
-    _exh = df.attrs.get("exhausted") if hasattr(df, "attrs") else None
-    _seeds = df.attrs.get("seeds") if hasattr(df, "attrs") else None
-    df, shorts_df = apply_quality_filters(df, return_shorts=True)
-    if _rank:
-        df.attrs["seeds"] = _seeds or []
-        search_depth_diagnostic(df, _rank, _exh)
-    elapsed = time.time() - start_time
+    with keys.unchained():
+        print(f"Collecting topic: {topic!r} ({max_results} videos)")
+        order = order or SEARCH_ORDER
+        collect_target = int(max_results * COLLECTION_OVERSHOOT)
+        df, _ = _collect_raw(api_key, topic, collect_target, order, tracker,
+                             lookback_days=lookback_days, topic_mode=True)
+        _rank = df.attrs.get("rank_map") if hasattr(df, "attrs") else None
+        _exh = df.attrs.get("exhausted") if hasattr(df, "attrs") else None
+        _seeds = df.attrs.get("seeds") if hasattr(df, "attrs") else None
+        df, shorts_df = apply_quality_filters(df, return_shorts=True)
+        if _rank:
+            df.attrs["seeds"] = _seeds or []
+            search_depth_diagnostic(df, _rank, _exh)
+        elapsed = time.time() - start_time
 
-    if df.empty:
-        print(f"No videos found for topic {topic!r}.")
+        if df.empty:
+            print(f"No videos found for topic {topic!r}.")
+            return df
+
+        diag = _diagnostics(df, max_results)
+
+        print("Saving topic dataset...")
+        _save_videos(df, _topic_videos_path(topic))
+        units_used_so_far = tracker.summary()["used"] - units_before
+        _save_metadata(topic, topic, df, tracker, diag, max_results, _topic_metadata_path(topic),
+                        kind="topic", order=order, elapsed_seconds=elapsed,
+                        quota_cost_this_build=units_used_so_far,
+                        lookback_days=lookback_days)
+
+        units_used = tracker.summary()["used"] - units_before
+        _log_quota_history("topic_collect", topic, len(df), units_used, elapsed)
+
+        _print_summary(topic, df, tracker, diag)
+        print("Done.")
+
         return df
-
-    diag = _diagnostics(df, max_results)
-
-    print("Saving topic dataset...")
-    _save_videos(df, _topic_videos_path(topic))
-    units_used_so_far = tracker.summary()["used"] - units_before
-    _save_metadata(topic, topic, df, tracker, diag, max_results, _topic_metadata_path(topic),
-                    kind="topic", order=order, elapsed_seconds=elapsed,
-                    quota_cost_this_build=units_used_so_far,
-                    lookback_days=lookback_days)
-
-    units_used = tracker.summary()["used"] - units_before
-    _log_quota_history("topic_collect", topic, len(df), units_used, elapsed)
-
-    _print_summary(topic, df, tracker, diag)
-    print("Done.")
-
-    return df
 
 
 if __name__ == "__main__":

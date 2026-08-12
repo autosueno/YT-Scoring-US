@@ -347,6 +347,21 @@ def shorts_path(niche_name: str) -> str:
     return _subject_file(niche_dir(niche_name), niche_name, "shorts.csv")
 
 
+def seed_query_history_path() -> str:
+    """
+    One shared file, at the DATASETS root, not inside any single niche's
+    folder — deliberately, so it survives that niche's folder being
+    deleted (tested this session: deleting a niche's whole folder is
+    otherwise harmless and recoverable by rebuilding, EXCEPT that the
+    real, hand-crafted seed queries used to build it were only ever
+    stored inside that same folder's metadata.json, and would be lost
+    with it). This is a small standing record, independent of any one
+    build, of the last real seed queries used per niche.
+    """
+    from config import DATASETS_DIR
+    return os.path.join(DATASETS_DIR, "_seed_query_history.json")
+
+
 def videos_path(niche_name: str) -> str:
     return _subject_file(niche_dir(niche_name), niche_name, "videos.csv")
 

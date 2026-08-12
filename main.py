@@ -96,6 +96,20 @@ def ensure_niche(api_key, niche_name, query=None, tracker=None, force=False,
     Ensure a fresh-enough niche database exists, rebuilding if needed.
 
     Returns the niche DataFrame (loaded from disk or freshly built).
+
+    Before spending any quota on a rebuild, checks two things in order:
+      1. Was a query actually given? If not —
+      2. Is there a REMEMBERED query from a past real build of this
+         niche (collector.load_seed_query_history)? Use it silently if
+         so — that's the whole point of remembering it.
+    Only if BOTH are empty does this warn and ask for confirmation
+    before proceeding with just the bare niche name as the search term
+    — a much narrower, weaker collection than a real multi-seed build,
+    and one that would silently replace whatever good dataset already
+    existed. Found and fixed after it was flagged as a real risk: a
+    person rebuilding a stale niche from option 2, with no memory of
+    the original seed queries, had no warning before this happened and
+    no way to recover the original queries afterward either.
     """
     tracker = tracker or QuotaTracker()
 
@@ -104,6 +118,32 @@ def ensure_niche(api_key, niche_name, query=None, tracker=None, force=False,
         reason = "forced" if force else (
             "not built yet" if age is None else f"{age:.1f} days old (max {NICHE_MAX_AGE_DAYS})"
         )
+
+        if not query:
+            remembered = collector.load_seed_query_history(niche_name)
+            if remembered:
+                query = remembered
+                print(f"  Using remembered seed queries for {niche_name!r}: "
+                      f"{query}")
+            else:
+                print(f"\n  ⚠️  About to rebuild {niche_name!r} ({reason}) "
+                      f"with NO seed queries given, and none remembered "
+                      f"from a past build.")
+                fallback_term = niche_name.split('@')[0].replace('_', ' ')
+                print(f"      This will search using only the bare niche "
+                      f"name, {fallback_term!r} — a single, "
+                      f"narrow term, not the multi-seed search a real "
+                      f"build uses. It will spend quota producing a "
+                      f"weaker dataset than a proper build would, and "
+                      f"will overwrite whatever is there now (the old "
+                      f"one is archived, not deleted, but this option "
+                      f"won't use it going forward).")
+                proceed = input("      Proceed anyway? [y/N]: ").strip().lower()
+                if proceed != "y":
+                    print("      Cancelled. Re-run with real seed queries, "
+                          "or build this niche through option 1 first.")
+                    return None, tracker
+
         print(f"Rebuilding niche {niche_name!r} — {reason}.")
         df = collector.build_niche_database(
             api_key, niche_name, query=query, tracker=tracker,
@@ -133,8 +173,22 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
     # 1. Niche baseline. Keep the frame — the multi-window view needs
     # the niche's own videos to slice, not just its stored baseline.
     niche_df, _ = ensure_niche(api_key, niche_name, query=query, tracker=tracker)
+    if niche_df is None:
+        return None  # rebuild was needed and the user declined it
 
     # 2. Topic data (always fresh — a grade should reflect right now)
+    #
+    # Release the reserved tail keys HERE, not at the start of option 2's
+    # dispatch — step 1 above (ensure_niche) can trigger a full niche
+    # rebuild if the niche was missing or stale, and that rebuild must
+    # NOT have access to the keys this reservation exists to protect.
+    # Releasing early was a real bug, not a theoretical one: a run that
+    # hit a niche rebuild inside this function printed "12 keys — 12 for
+    # the build, 0 reserved for grading" — the exact failure this
+    # mechanism exists to prevent, because the release had already
+    # happened one step too soon.
+    if hasattr(api_key, "use_reserved_keys"):
+        api_key.use_reserved_keys()
     print(f"\nCollecting topic {topic!r}...")
     # Collect the topic over the SAME window the niche used. Grading is
     # percentile-based, so a topic sampled over 45 days against a
@@ -229,16 +283,65 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
 
 def grade_existing_niche(niche_name):
     """
-    Grade a niche against its own baseline (no API calls) — useful for
-    comparing multiple niches you've already built.
+    Grade a niche against the OTHER niches in your built library — no
+    API calls.
+
+    PREVIOUSLY: this graded a niche against a baseline built FROM
+    ITSELF, which is circular and forces demand to ~64.0 and supply to
+    exactly 50.0 by arithmetic, for EVERY niche, regardless of what the
+    niche actually looks like — verified directly against three
+    different real niches, all three producing the identical numbers.
+    crossniche.py fixed the underlying mechanism (leave-one-out pooled
+    grading) as a separate module, but it was never wired into this —
+    the simplest, most commonly used single-niche grading path — so
+    running this specific option kept reproducing the exact bug this
+    whole project exists to fix, silently, the entire time the fix
+    already existed elsewhere in the codebase.
+
+    NOW: pools against every OTHER niche built at the same window (see
+    crossniche.py for why same-window only). Falls back to the OLD
+    self-baseline behavior, with an explicit on-screen warning, only
+    when there are fewer than crossniche.MIN_POOL_NICHES other niches to
+    pool against — a self-comparison is a worse answer than a real one,
+    but it is a better answer than refusing to grade at all for someone
+    who has only just started building their library.
+
+    Deliberately does NOT touch option 2's topic-vs-its-own-niche
+    grading, which is a different, non-circular comparison and was never
+    the bug this fixes — see grade_topic_against_niche.
     """
     if not _require_database(niche_name):
         return None
-    df = collector.load_database(niche_name)
-    baseline = load_baseline(niche_name)
-    meta = collector.load_metadata(niche_name) or {}
-    result = grade_niche(df, baseline, niche_name,
-                         lookback_days=meta.get('lookback_days'))
+
+    import crossniche as _xn
+    from paths import split_window as _split_window
+
+    base, win = _split_window(niche_name)
+    pool_keys = _xn.available_keys(win) if win else _xn.available_keys()
+    others = [k for k in pool_keys if k != niche_name]
+
+    result = None
+    if len(others) >= _xn.MIN_POOL_NICHES:
+        out = _xn.sweep_selected(pool_keys, verbose=False)
+        if not out.get("error"):
+            result = out.get("results", {}).get(niche_name)
+        if result is not None:
+            print(f"\n  Graded against the other {len(others)} niche(s) "
+                  f"in your library at this window.")
+
+    if result is None:
+        df = collector.load_database(niche_name)
+        baseline = load_baseline(niche_name)
+        meta = collector.load_metadata(niche_name) or {}
+        result = grade_niche(df, baseline, niche_name,
+                             lookback_days=meta.get('lookback_days'))
+        print(f"\n  ⚠️  Only {len(others)} other niche(s) built at this "
+              f"window — need {_xn.MIN_POOL_NICHES} to grade against a "
+              f"real pool. Falling back to self-comparison, which is "
+              f"less meaningful: demand and supply will read close to "
+              f"64.0/50.0 by arithmetic almost regardless of the niche. "
+              f"Build more niches at this window for a real comparison.")
+
     report.print_grade(result)
     try:
         path = _save_grade_json(result, niche_name)
@@ -612,6 +715,11 @@ def discover_opportunities(niche_name):
     try:
         import timing as _timing
         _t = _timing.build_timing_report(scored)
+        timing_paths = _timing.export_timing_report(scored, niche_name)
+        print("\nTiming report:")
+        for fmt, p in timing_paths.items():
+            print(f"  {fmt:12s} → {p}")
+        paths.update({f"timing_{k}": v for k, v in timing_paths.items()})
         cal_paths = cal.export_calendars(
             scored, niche_name,
             tiers=config.CREATOR_SIZE_TIERS,
@@ -771,6 +879,8 @@ def _dispatch(choice):
         niche_key = _p.with_window(niche, lookback)
         df, tracker = ensure_niche(keys, niche_key, query=query, force=force,
                                    lookback_days=lookback)
+        if df is None:
+            return  # rebuild was needed and the user declined it
         niche = niche_key
         meta = collector.load_metadata(niche)
         if meta:
@@ -790,9 +900,23 @@ def _dispatch(choice):
 
     elif choice == "2":
         keys = _load_keys_or_exit()
-        # Topic grading starts on the reserved tail keys so a big niche
-        # build can never leave grading without quota.
-        keys.use_reserved_keys()
+        # Two-part protection, both needed — found only one existed by
+        # actually reproducing the bug against real data (12 keys, 0
+        # reserved for grading, on a run that hit a niche rebuild):
+        #
+        #   1. reserve_for_topics(True), HERE, before anything else runs.
+        #      This is the actual protective switch — build_key_order()
+        #      only excludes the reserved tail keys when this is on.
+        #      Without it (the state this was in before), a niche rebuild
+        #      triggered inside step 1 of grade_topic_against_niche has
+        #      every key "fair game", including the ones meant to be off
+        #      limits to any build.
+        #   2. use_reserved_keys(), inside grade_topic_against_niche,
+        #      right before topic collection — releases the protection
+        #      and switches onto the tail keys for that step specifically.
+        #      (This was the only piece fixed in an earlier pass; it was
+        #      necessary but not sufficient on its own.)
+        keys.reserve_for_topics(True)
         niche = _pick_niche("Niche name (baseline to grade against): ")
         query = input("Niche seed queries (Enter to reuse niche name): ").strip() or None
         topic = input("Topic to grade: ").strip()

@@ -207,9 +207,15 @@ class ApiKeyManager:
     # Per-seed key assignment
     # ------------------------------------------------------------------
 
-    def seed_key_chain(self, seed_index: int, n_seeds: int):
+    def seed_key_chain(self, seed_index: int, n_seeds: int, pool=None):
         """
         The ordered list of keys belonging to ONE seed.
+
+        pool: which key indices to stride over. Defaults to
+        build_key_order() (the build-eligible keys) if not given — pass
+        an explicit pool (e.g. reserved_key_order()) to stride over a
+        different set entirely, which is how topic_key_chain() below
+        restricts itself to the reserved tail instead.
 
         Keys are dealt round-robin by STRIDE, so with 12 keys, 2 reserved
         for topic grading (leaving 10 build keys) and 5 seeds:
@@ -244,18 +250,67 @@ class ApiKeyManager:
         it was merely under-supplied. `capacity_note()` now states the
         real number out loud at build time.
         """
-        order = self.build_key_order()
+        order = pool if pool is not None else self.build_key_order()
         if not order or n_seeds <= 0:
             return order
         stride = min(n_seeds, len(order))
         return [order[i] for i in range(seed_index % stride, len(order), stride)]
 
-    def capacity_note(self, n_seeds: int) -> str:
+    def topic_key_chain(self, seed_index: int, n_seeds: int):
         """
-        Plain statement of the key layout for this build — printed BEFORE
+        The key chain topic grading should actually use — restricted to
+        the reserved tail keys specifically, not the full 12-key pool.
+
+        THE BUG THIS FIXES: seed_key_chain() always struck its pool from
+        build_key_order(), which — once use_reserved_keys() releases
+        _hard_reserve (correctly, so topic collection CAN use any key) —
+        returns ALL keys with no distinction left for which ones were
+        "reserved". So a single-seed topic collection (n_seeds=1) would
+        stride over keys #1-12 in plain order and land on key #1 or
+        whichever was first live, not on the reserved tail at all.
+        Observed directly: a real topic collection got assigned key #2
+        as primary, with keys #3-12 as backup — the reservation had no
+        effect on what actually got used, only on what a BUILD could not
+        touch.
+
+        Falls back to the full pool ONLY if every reserved key is dead —
+        matching the stated intent: keys #11/#12 are primary for topic
+        grading, the rest only come in once both of those are spent.
+        """
+        reserved = self.reserved_key_order()
+        if reserved and any(not self._dead[i] for i in reserved):
+            return self.seed_key_chain(seed_index, n_seeds, pool=reserved)
+        return self.seed_key_chain(seed_index, n_seeds)
+
+    def capacity_note(self, n_seeds: int, topic_mode: bool = False) -> str:
+        """
+        Plain statement of the key layout for this run — printed BEFORE
         any quota is spent, so an under-supplied run is visible at the
         top of the log instead of being inferred from a cascade later.
+
+        topic_mode: describe the RESERVED pool topic grading actually
+        uses (topic_key_chain), not the build pool. Printing the build-
+        oriented message here unconditionally was its own bug — even
+        after topic_key_chain fixed the real key selection, this would
+        still have said "0 reserved for grading" for a topic run, true
+        of the build pool but no longer true of what actually got used.
         """
+        if topic_mode:
+            reserved = self.reserved_key_order()
+            if not reserved:
+                return ("  No keys reserved for topic grading — "
+                        "using the general pool.")
+            n_live = sum(1 for i in reserved if not self._dead[i])
+            lines = [f"  Key plan: {len(reserved)} key(s) reserved for "
+                     f"topic grading (#{reserved[0] + 1}"
+                     + (f"-#{reserved[-1] + 1}" if len(reserved) > 1 else "")
+                     + f"). Falls back to the full pool only if all "
+                     f"{len(reserved)} are dead."]
+            if n_live < len(reserved):
+                lines.append(f"  ⚠️  Only {n_live} of {len(reserved)} "
+                             f"reserved key(s) are live today.")
+            return "\n".join(lines)
+
         order = self.build_key_order()
         n_build = len(order)
         n_res = self.total_keys - n_build
@@ -278,6 +333,7 @@ class ApiKeyManager:
                          f"earlier seeds and will find them spent.")
         # Counting configured keys is what made the old forecast fiction.
         # If today has already spent most of them, say so BEFORE the
+
         # build commits to a target it cannot reach.
         if n_live < n_build:
             lines.append(f"  ⚠️  Only {n_live} of {n_build} build keys are "
@@ -290,13 +346,21 @@ class ApiKeyManager:
                              f"a full one; consider waiting for the reset.")
         return "\n".join(lines)
 
-    def use_key_for_seed(self, seed_index: int, n_seeds: int = None) -> bool:
+    def use_key_for_seed(self, seed_index: int, n_seeds: int = None,
+                         topic_mode: bool = False) -> bool:
         """
         Point this manager at a seed's own key chain.
 
         With n_seeds given, the seed gets a primary plus every stride-th
         key after it as backups, and exhausting the primary moves it to
         its own backup rather than to another seed's.
+
+        topic_mode: use topic_key_chain() (the reserved tail keys, with
+        a fallback to the full pool only once ALL of those are dead)
+        instead of seed_key_chain()'s normal build-pool stride. This is
+        what actually makes topic grading prefer keys #11/#12 — see
+        topic_key_chain's docstring for the bug this replaced, where
+        that preference existed only in name.
 
         Without n_seeds, the original one-key-per-seed behaviour applies.
 
@@ -310,7 +374,8 @@ class ApiKeyManager:
         if not self._keys:
             return False
         if n_seeds:
-            chain = self.seed_key_chain(seed_index, n_seeds)
+            chain = (self.topic_key_chain(seed_index, n_seeds) if topic_mode
+                     else self.seed_key_chain(seed_index, n_seeds))
             self._seed_chain = chain
             want = next((k for k in chain if not self._dead[k]), None)
             if want is None and not SEED_CHAIN_STRICT:
@@ -401,6 +466,21 @@ class ApiKeyManager:
         applies for that operation.
         """
         self._hard_reserve = enable and RESERVED_KEYS_FOR_TOPICS > 0
+
+    def reserved_key_order(self):
+        """
+        Indices topic grading should use — the mirror of build_key_order.
+
+        Always just the last RESERVED_KEYS_FOR_TOPICS keys, regardless of
+        _hard_reserve (that flag only ever controlled what a BUILD can
+        touch; it was never a statement about what topic grading should
+        prefer). Returns [] if there aren't enough keys to reserve any.
+        """
+        n = len(self._keys)
+        if RESERVED_KEYS_FOR_TOPICS <= 0 or n <= RESERVED_KEYS_FOR_TOPICS:
+            return []
+        cut = n - RESERVED_KEYS_FOR_TOPICS
+        return list(range(cut, n))
 
     def build_key_order(self):
         """

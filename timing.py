@@ -41,6 +41,9 @@ Deterministic; nothing here feeds demand/supply/momentum scoring.
 """
 
 from datetime import timezone as _tz
+from datetime import datetime
+import json
+import os
 
 import pandas as pd
 
@@ -741,3 +744,43 @@ def render_timing_markdown(rep) -> list:
              "a slot may look weak simply because everyone crowds it, which "
              "is an argument for posting there, not against.\n")
     return L
+
+
+def export_timing_report(df, niche_name, out_dir_override=None) -> dict:
+    """
+    Write the full timing report to exports/ as Markdown + JSON.
+
+    THIS DID NOT EXIST BEFORE, AND NOTHING ELSE WROTE ONE EITHER — found
+    when asked to send a "timing file" for calibration and there wasn't
+    one. build_timing_report() computes the full analysis (by_hour,
+    by_weekday, heatmap, best/worst slots, event-driven scoring, bootstrap
+    confidence intervals — everything render_timing_markdown formats),
+    but the only caller anywhere in the codebase (option 3's discovery
+    flow) only ever used ONE field off the result (event_driven), to feed
+    the calendar export, and discarded the rest. The full computation ran
+    every time and was thrown away every time. This is the missing save
+    step, built the same way seo.export_seo_report already saves its
+    report — same directory convention, same md+json pair — so a niche
+    build actually produces a file this can be calibrated against,
+    instead of computing the analysis and discarding it.
+    """
+    from paths import export_dir_for, safe_name
+    from config import EXPORTS_DIR
+
+    rep = build_timing_report(df)
+    out_dir = out_dir_override or export_dir_for(EXPORTS_DIR, niche_name, "packaging")
+    os.makedirs(out_dir, exist_ok=True)
+    stem = os.path.join(out_dir, f"{safe_name(niche_name)}_timing")
+    paths = {"md": stem + ".md", "json": stem + ".json"}
+
+    with open(paths["json"], "w", encoding="utf-8") as f:
+        json.dump(rep, f, indent=2, default=str)
+
+    ts = datetime.now(_tz.utc).strftime("%Y-%m-%d %H:%M UTC")
+    L = [f"# {niche_name} — Publishing Timing Report\n",
+         f"Generated {ts} · {rep['videos_analyzed']:,} videos\n"]
+    L.extend(render_timing_markdown(rep))
+    with open(paths["md"], "w", encoding="utf-8") as f:
+        f.write("".join(L))
+
+    return paths
