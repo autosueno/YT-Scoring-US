@@ -415,6 +415,29 @@ EXPORTS_DIR = os.path.join(BASE_DIR, "exports")
 # rank by outlier_ratio within each size band, which answers "what can a
 # channel my size actually do" without letting tiny-denominator noise
 # contaminate the headline ranking.
+#
+# TESTED, NOT JUST INHERITED — this split sat unexamined through the
+# whole Tier 3 pass; only velocity's weight got scrutinized at the time.
+# Checked properly against all 11 real niches' breakout exports:
+#
+#   redundancy: demand and outlier percentiles correlate 0.32-0.61
+#   (mean 0.48) across niches — related but not redundant, so this is a
+#   real weighting decision, not one metric standing in for the other.
+#
+#   sensitivity: the ranking is HIGHLY sensitive to this split (opposite
+#   of velocity) — top-10 overlap drops to 47% at 90/0 and 22% at 0/90
+#   versus the current split. This weight is doing real work.
+#
+#   validity: swept 50/40 through 90/0 and checked what actually gets
+#   surfaced. Pure-outlier weighting (0/90) pulls in much smaller,
+#   less-substantial videos (median top-20 views 239k) — the same
+#   small-denominator inflation problem found elsewhere this session,
+#   just showing up here as tiny channels whose modest absolute gains
+#   look enormous relative to their own tiny baseline. The current
+#   split's median top-20 views (1.4M) beat every other point tested,
+#   including both pure extremes AND every nearby alternative
+#   (75/15 through 50/40 all landed at a flat, lower 1.3M) — a genuine,
+#   reproduced local optimum, not a tie it happened to land on.
 BREAKOUT_DEMAND_WEIGHT = 0.65     # views_per_hour percentile — demand RATE
 BREAKOUT_OUTLIER_WEIGHT = 0.25    # outlier_ratio percentile — vs own channel
 

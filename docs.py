@@ -52,7 +52,11 @@ MENU = [
      "Measured growth between two snapshots. Needs 2+ builds."),
     ("10", "Compare all niches side by side", "free",
      "Every build in one table, plus calibrated spread thresholds."),
-    ("11", "Quit", None, ""),
+    ("11", "Regenerate stats/insights/metadata from an edited videos.csv", "free",
+     "Re-derive everything from a cleaned videos.csv — no API calls."),
+    ("12", "Bulk-slice your whole niche library to one window", "free",
+     "Slice every 365d niche down to 30d/90d/etc at once, from data you already have."),
+    ("13", "Quit", None, ""),
 ]
 
 WORKFLOWS = [

@@ -126,6 +126,75 @@ SPREAD_CALIBRATION_N = 11
 SPREAD_CALIBRATION_LARGE_N = 4
 SPREAD_CALIBRATION_SMALL_N = 7
 
+# ============================================================
+# 30d / 90d CALIBRATION
+# ============================================================
+# Everything above this point describes the 365d population and stays
+# untouched — every existing caller that doesn't pass window_days keeps
+# getting exactly the same numbers it always has.
+#
+# Built the same way the 365d numbers were: sliced 16 real niches down
+# to 30d and 90d (free — reused existing 365d raw data, no new API
+# calls), found the size-band cut from the largest natural gap in
+# sorted P90 values, then computed observed min/max and terciles
+# within each band, at each window, separately.
+#
+# ONE THING THAT IS NOT A SIMPLE PORT: the size-band cutoff
+# (CEILING_LARGE_MIN, 100k at 365d) does NOT just carry over to shorter
+# windows. Checked directly, not assumed: applying the 365d cutoff to
+# 30d/90d-sliced data misclassified real, established large niches
+# (ancient_history, productivity_systems) as "small" purely because a
+# 30-day-old cohort has had less time to accumulate views than a
+# 365-day-old one — nothing about the niche itself changed. The cut
+# has to scale down with the window, or size classification silently
+# flips depending on which window you happen to be looking through.
+#
+# The new cutoffs were NOT picked by mechanically re-running "find the
+# largest gap" at each window — at 30d that heuristic produces a
+# degenerate 1-vs-15 split (the biggest gap sits right at the bottom
+# of the distribution, between the single thinnest niche and
+# everything else, which is not a meaningful size boundary). Instead,
+# picked the cutoff that keeps niches already established as large at
+# 365d classified the same way at the shorter window, since a niche's
+# real size doesn't change — only how much time its videos have had.
+# productivity_systems is the one niche that doesn't carry over (large
+# at 365d, small at both 90d and 30d) — expected, not a fix needed:
+# the earlier Tier 1 window investigation already found this specific
+# niche has an unusually extreme hump-and-crash spread pattern, so its
+# early numbers genuinely don't look "large" yet.
+WINDOW_CALIBRATION = {
+    90: {
+        "ceiling_large_min": 70_000,
+        "large_ratio_min": 3.47, "large_ratio_max": 10.63,
+        "small_ratio_min": 2.59, "small_ratio_max": 36.77,
+        "large_gentle_max": 5.52, "large_brutal_min": 9.43,
+        "small_gentle_max": 11.15, "small_brutal_min": 17.76,
+        "large_n": 5, "small_n": 11,
+        "large_label_reliable": True,
+    },
+    30: {
+        "ceiling_large_min": 40_000,
+        "large_ratio_min": 3.73, "large_ratio_max": 9.40,
+        "small_ratio_min": 2.28, "small_ratio_max": 32.87,
+        # NOT set from the raw tercile computation — see
+        # large_label_reliable below for why.
+        "large_gentle_max": None, "large_brutal_min": None,
+        "small_gentle_max": 5.48, "small_brutal_min": 9.70,
+        "large_n": 4, "small_n": 12,
+        # FOUND, NOT ASSUMED: 3 of the 4 large-market niches at 30d
+        # cluster almost identically (3.73, 4.08, 4.19) with a single
+        # outlier (ancient_history, 9.40). The resulting tercile split
+        # put "gentle" and "brutal" only 0.16 apart — mathematically a
+        # tercile, practically meaningless as a three-way label. The
+        # observed min/max above is still real and still usable for
+        # continuous scoring; only the gentle/normal/brutal LABEL is
+        # unreliable here. spread_band() checks this flag and falls
+        # back to reporting the number without the label rather than
+        # presenting a fake three-way split as if it meant something.
+        "large_label_reliable": False,
+    },
+}
+
 # The large group rests on FOUR niches. Terciles from four points are
 # barely terciles — the p33 and p67 are essentially the 2nd and 3rd
 # values. Treat large-market readings as provisional in a way the small
@@ -156,14 +225,34 @@ CEILING_LARGE_MIN = 100_000
 CONTAMINATION_WARN_SHARE = 0.25
 
 
-def thresholds_for(size_band):
-    """The (gentle_max, brutal_min) pair for a market size."""
+def thresholds_for(size_band, window_days=None):
+    """
+    The (gentle_max, brutal_min) pair for a market size.
+
+    window_days=None (or 365, or any window this project has no
+    dedicated calibration for — 45d/60d/180d/etc.) uses the original
+    365d numbers, unchanged. 30d/90d use their own calibration from
+    WINDOW_CALIBRATION where it exists.
+
+    Can return (None, None) even for a recognized window — see
+    WINDOW_CALIBRATION[30]'s large band, where the label itself was
+    found to be unreliable even though the window has real data.
+    Callers must handle that case rather than assume a threshold pair
+    is always available.
+    """
+    cal = WINDOW_CALIBRATION.get(window_days)
+    if cal and size_band == "large":
+        if not cal["large_label_reliable"]:
+            return None, None
+        return cal["large_gentle_max"], cal["large_brutal_min"]
+    if cal:
+        return cal["small_gentle_max"], cal["small_brutal_min"]
     if size_band == "large":
         return LARGE_GENTLE_MAX, LARGE_BRUTAL_MIN
     return SMALL_GENTLE_MAX, SMALL_BRUTAL_MIN
 
 
-def observed_range_for(size_band):
+def observed_range_for(size_band, window_days=None):
     """
     The (min, max) OBSERVED ratio for a market size — the population's
     own extremes, with no margin applied here (callers scoring
@@ -174,13 +263,24 @@ def observed_range_for(size_band):
     three-way gentle/normal/brutal label. They answer different
     questions and are not interchangeable — see the comment above
     LARGE_RATIO_MIN for the bug that happens when they are swapped.
+
+    window_days follows the same fallback rule as thresholds_for():
+    None/365/unrecognized uses the original 365d range; 30d/90d use
+    their own. Unlike the label, the observed range is available at
+    30d for BOTH bands, including large — the range itself is real
+    even where the tercile split within it isn't meaningful.
     """
+    cal = WINDOW_CALIBRATION.get(window_days)
+    if cal and size_band == "large":
+        return cal["large_ratio_min"], cal["large_ratio_max"]
+    if cal:
+        return cal["small_ratio_min"], cal["small_ratio_max"]
     if size_band == "large":
         return LARGE_RATIO_MIN, LARGE_RATIO_MAX
     return SMALL_RATIO_MIN, SMALL_RATIO_MAX
 
 
-def spread_band(ratio, size_band="small"):
+def spread_band(ratio, size_band="small", window_days=None):
     """
     ('gentle'|'normal'|'brutal', plain-English reading) for a P90/P75
     ratio, JUDGED AGAINST OTHER MARKETS OF THE SAME SIZE.
@@ -189,11 +289,25 @@ def spread_band(ratio, size_band="small"):
     and firmly brutal in the small one. Grading both on one scale would
     call the same number two different things — or, worse, the same
     thing when it means two different things.
+
+    window_days=None/365/unrecognized uses the 365d label thresholds.
+    30d/90d use their own where available. Can return (None, "...")
+    even with a valid ratio — see WINDOW_CALIBRATION[30]'s large band:
+    the label was found unreliable there, so this reports the number
+    honestly without pretending a gentle/normal/brutal call means
+    anything.
     """
     if ratio is None or ratio != ratio or ratio <= 0:
         return None, None
-    gentle_max, brutal_min = thresholds_for(size_band)
+    gentle_max, brutal_min = thresholds_for(size_band, window_days)
     peers = "large markets" if size_band == "large" else "markets this size"
+
+    if gentle_max is None:
+        return None, (
+            f"~{ratio:.1f}x from a decent video to a hit — no reliable "
+            f"gentle/normal/brutal reading for {peers} at this window "
+            f"yet (the sample this would be judged against is too thin "
+            f"and unevenly spread to split into three bands honestly).")
 
     if ratio < gentle_max:
         return "gentle", (
@@ -210,11 +324,24 @@ def spread_band(ratio, size_band="small"):
         f"to breakouts")
 
 
-def ceiling_band(p90_views):
-    """('large'|'small', reading) from a niche's top-10% view count."""
+def ceiling_band(p90_views, window_days=None):
+    """
+    ('large'|'small', reading) from a niche's top-10% view count.
+
+    window_days matters here in a way it doesn't for most of this
+    module: a niche's real audience size doesn't change depending on
+    the collection window, but a 30-day-old cohort has had far less
+    time to accumulate views than a 365-day-old one, so using the
+    365d cutoff (100k) on 30d-sliced data silently misclassifies real
+    large niches as small — checked directly against 16 real niches,
+    not assumed. WINDOW_CALIBRATION carries a separately-derived
+    cutoff per window for exactly this reason.
+    """
+    cal = WINDOW_CALIBRATION.get(window_days)
+    cutoff = cal["ceiling_large_min"] if cal else CEILING_LARGE_MIN
     if not p90_views or p90_views != p90_views:
         return None, None
-    if p90_views >= CEILING_LARGE_MIN:
+    if p90_views >= cutoff:
         return "large", (
             f"large market — a hit here reaches ~{p90_views:,.0f} views, "
             f"so the prize is big, but so is the crowd")
@@ -237,7 +364,7 @@ def spread_range_text(ratio):
     return f"~{lo:.0f}-{hi:.0f}x"
 
 
-def describe(p90_views, p75_views, contamination_share=None):
+def describe(p90_views, p75_views, contamination_share=None, window_days=None):
     """
     The two-axis reading for one niche, graded on its own size class.
 
@@ -252,23 +379,35 @@ def describe(p90_views, p75_views, contamination_share=None):
     score would hide exactly the distinction a creator is choosing
     between — a big prize on a lottery, or a modest one on a steady
     climb.
+
+    window_days: pass the niche's actual collection window (30/90/365,
+    or anything else) so ceiling and spread get judged against markets
+    measured the SAME way. None defaults to 365d behavior, unchanged
+    from before this parameter existed.
     """
     out = {"ratio": None, "spread_band": None, "spread_text": None,
            "ceiling_band": None, "ceiling_text": None,
            "decent_pay": None, "warning": None, "thin_calibration": False}
 
     # 1. How big is this market?
-    out["ceiling_band"], out["ceiling_text"] = ceiling_band(p90_views)
+    out["ceiling_band"], out["ceiling_text"] = ceiling_band(p90_views, window_days)
     size = out["ceiling_band"] or "small"
 
-    # 2. Judge the climb against markets of THAT size.
+    # 2. Judge the climb against markets of THAT size, at THAT window.
     if p90_views and p75_views and p75_views > 0:
         out["ratio"] = p90_views / p75_views
-        out["spread_band"], out["spread_text"] = spread_band(out["ratio"], size)
+        out["spread_band"], out["spread_text"] = spread_band(
+            out["ratio"], size, window_days)
         out["decent_pay"] = p75_views
 
-    if size == "large" and LARGE_THRESHOLDS_ARE_THIN:
-        out["thin_calibration"] = True
+    cal = WINDOW_CALIBRATION.get(window_days)
+    if size == "large":
+        if cal:
+            # 30d/90d large is thin by construction (4-5 niches) —
+            # always flag it, same spirit as the 365d flag below.
+            out["thin_calibration"] = True
+        elif LARGE_THRESHOLDS_ARE_THIN:
+            out["thin_calibration"] = True
 
     if (contamination_share is not None
             and contamination_share >= CONTAMINATION_WARN_SHARE):

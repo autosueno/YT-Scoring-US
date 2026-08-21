@@ -490,20 +490,26 @@ def _offer_slice_instead(niche_base, requested_days):
     return {"1": "slice", "2": "build", "3": "cancel"}.get(choice, "slice")
 
 
-def _build_from_slice(niche_base, requested_days):
+def _slice_one_niche(niche_base, requested_days, src_key=None, verbose=True):
     """
-    Create a real dataset for a shorter window by slicing a longer one.
+    Do the actual slicing work for ONE niche — no interactive prompts,
+    no "run discovery?" nudge. Pulled out of _build_from_slice so the
+    bulk multi-niche slicer (_dispatch_bulk_slice) can call this in a
+    loop without firing an interactive prompt after every single niche,
+    while the existing single-niche flow keeps working exactly as
+    before by calling this and then doing its own interactive tail.
 
-    The first version of this just returned to the menu saying "reports
-    will slice it for you" — which nothing did. Slicing has to actually
-    PRODUCE something: a dataset on disk at the requested window, with
-    its own statistics, baseline and exports, indistinguishable from a
-    collected one except that it cost nothing.
-
-    Statistics and insights are recomputed from the slice rather than
-    copied, because percentiles come from the reference population. A
-    90-day slice graded against 365-day percentiles would compare a
-    video to a population it is not part of.
+    Returns a dict describing what happened — always, never raises for
+    an ordinary "can't slice this one" case, so a bulk run can report
+    every niche's outcome instead of dying on the first thin one:
+        {"status": "sliced", "dest_key":..., "src_key":..., "videos":...}
+        {"status": "no_longer_build"}   — nothing longer than the target exists
+        {"status": "empty_after_slice"} — a longer build exists but has
+                                           nothing inside the requested window
+        {"status": "already_exists"}    — a build at this exact window
+                                           already exists (caller decides
+                                           whether that's a skip or an
+                                           overwrite)
     """
     import pandas as pd
     import paths as _p
@@ -511,25 +517,30 @@ def _build_from_slice(niche_base, requested_days):
     import insights as _ins
     base, _ = _p.split_window(niche_base)
     root = os.path.join(config.DATASETS_DIR, _p.safe_name(base))
-    longer = [(int(d[:-1]), f"{base}{_p.WINDOW_SEP}{d}")
-              for d in os.listdir(root)
-              if d.endswith("d") and d[:-1].isdigit()
-              and int(d[:-1]) > requested_days]
-    if not longer:
-        print("  Nothing longer to slice from.")
-        return
-    src_days, src_key = max(longer)
     dest_key = _p.with_window(base, requested_days)
+
+    if src_key is None:
+        if not os.path.isdir(root):
+            return {"status": "no_longer_build"}
+        longer = [(int(d[:-1]), f"{base}{_p.WINDOW_SEP}{d}")
+                  for d in os.listdir(root)
+                  if d.endswith("d") and d[:-1].isdigit()
+                  and int(d[:-1]) > requested_days]
+        if not longer:
+            return {"status": "no_longer_build"}
+        src_days, src_key = max(longer)
+    else:
+        src_days = int(_p.split_window(src_key)[1][:-1])
 
     df = collector.load_database(src_key)
     ages = _ins._days_since(df)
     sliced = df[(ages <= requested_days).values].reset_index(drop=True)
     if sliced.empty:
-        print("  No videos fall inside that window.")
-        return
+        return {"status": "empty_after_slice", "src_key": src_key}
 
-    print(f"\n  Slicing {len(sliced):,} of {len(df):,} videos from the "
-          f"{src_days}d build...")
+    if verbose:
+        print(f"  Slicing {len(sliced):,} of {len(df):,} videos from the "
+              f"{src_days}d build...")
     os.makedirs(collector._niche_dir(dest_key), exist_ok=True)
     collector._save_videos(sliced, collector._videos_path(dest_key))
     _sm.save_statistics(sliced, collector._statistics_path(dest_key))
@@ -539,12 +550,6 @@ def _build_from_slice(niche_base, requested_days):
     src_meta = collector.load_metadata(src_key) or {}
     meta = dict(src_meta)
 
-    # EVERY summary figure must be recomputed from the slice. Copying the
-    # parent's metadata and updating only the obvious fields left the
-    # medians and P90s behind, so a 751-video 90-day slice displayed the
-    # exact profile of its 2,333-video parent — same 1,410 median, same
-    # 36.2x spread — which is precisely the kind of confidently wrong
-    # number that is worse than no number.
     def _stat(col, q):
         if col not in sliced.columns:
             return None
@@ -562,18 +567,14 @@ def _build_from_slice(niche_base, requested_days):
         "median_engagement": _stat("engagement_rate", 0.50),
         "p90_vph": _stat("views_per_hour", 0.90),
         "p90_views": _stat("view_count", 0.90),
+        "p75_views": _stat("view_count", 0.75),
         "p90_engagement": _stat("engagement_rate", 0.90),
-        # Age span belongs to the slice too.
         "oldest_video_days": float(
             pd.to_numeric(sliced["hours_since_upload"], errors="coerce").max() / 24)
             if "hours_since_upload" in sliced.columns else None,
         "newest_video_days": float(
             pd.to_numeric(sliced["hours_since_upload"], errors="coerce").min() / 24)
             if "hours_since_upload" in sliced.columns else None,
-        # Recorded so a later reader knows this was not independently
-        # collected — it inherits the parent's seed coverage and its
-        # sampling density, which is thinner for recent months than a
-        # dedicated short build would be.
         "derived_from": src_key,
         "derived_note": (f"Sliced from the {src_days}d build rather than "
                          f"collected. Sampling density in this window is "
@@ -582,17 +583,164 @@ def _build_from_slice(niche_base, requested_days):
     with open(collector._metadata_path(dest_key), "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 
-    print(f"  Dataset written → {collector._niche_dir(dest_key)}")
+    return {"status": "sliced", "dest_key": dest_key, "src_key": src_key,
+            "videos": len(sliced), "meta": meta, "df": sliced}
+
+
+def _build_from_slice(niche_base, requested_days):
+    """
+    Interactive single-niche slice — the original flow, now a thin
+    wrapper around _slice_one_niche() plus this flow's own "run
+    discovery now?" nudge. Behaviour unchanged from before the bulk
+    slicer existed.
+    """
+    r = _slice_one_niche(niche_base, requested_days)
+    if r["status"] == "no_longer_build":
+        print("  Nothing longer to slice from.")
+        return
+    if r["status"] == "empty_after_slice":
+        print("  No videos fall inside that window.")
+        return
+
+    print(f"  Dataset written → {collector._niche_dir(r['dest_key'])}")
     print("  Statistics and baseline recomputed from the slice, so "
           "percentiles")
     print(f"  reference the {requested_days}d population rather than the "
           f"parent's.")
     try:
-        report.print_niche_summary(meta, sliced)
+        report.print_niche_summary(r["meta"], r["df"])
     except Exception:
         pass
     if input("\n  Run discovery on it now? [Y/n]: ").strip().lower() != "n":
-        discover_opportunities(dest_key)
+        discover_opportunities(r["dest_key"])
+
+
+def _dispatch_bulk_slice():
+    """
+    Option 12 — slice EVERY built niche (or a chosen subset) down to
+    one target window at once, all for free: this only re-filters
+    already-collected videos by age, so it costs zero API quota
+    regardless of how many niches it touches.
+
+    Built for exactly the situation option 10 (compare) runs into
+    constantly: a real cross-niche comparison needs every niche at the
+    SAME window, and slicing one at a time through option 1 makes that
+    a lot of repetitive manual work for a library of any real size.
+
+    Two decisions made explicit rather than silent, per the design
+    questions flagged when this was first put on the agenda:
+      - defaults to EVERY niche in the library, but always shows the
+        full list and lets you narrow it before anything runs;
+      - a niche that cannot supply the requested window (nothing built
+        longer than it) is REPORTED, not silently dropped — the whole
+        point of a bulk tool is trusting the summary, so a niche that
+        silently didn't get sliced would be a real, easy-to-miss gap.
+    """
+    import compare as _cmp
+    import paths as _p
+
+    all_niches = _cmp.list_all_niches()
+    if not all_niches:
+        print("\n  No niches built yet — nothing to slice.")
+        return
+
+    # Reduce to unique BASE names (a niche can appear at several
+    # windows already) with the longest window each currently has,
+    # since that longest build is what any slice will be drawn from.
+    longest = {}
+    for key, meta in all_niches:
+        base, win = _p.split_window(key)
+        days = int(win[:-1]) if win and win[:-1].isdigit() else None
+        if days is None:
+            continue
+        if base not in longest or days > longest[base][0]:
+            longest[base] = (days, meta.get("videos", 0))
+
+    if not longest:
+        print("\n  No windowed niche builds found to slice from.")
+        return
+
+    print(f"\n  {len(longest)} niche(s) in your library:")
+    ordered = sorted(longest.items())
+    for i, (base, (days, videos)) in enumerate(ordered, 1):
+        print(f"    {i:>2}) {base:<28} longest build: {days}d ({videos:,} videos)")
+
+    raw = input(f"\n  Slice which? (e.g. 1,3,5 — Enter for all "
+               f"{len(ordered)}): ").strip()
+    if raw:
+        idx = [int(x) - 1 for x in raw.split(",") if x.strip().isdigit()]
+        chosen = [ordered[i] for i in idx if 0 <= i < len(ordered)]
+    else:
+        chosen = ordered
+    if not chosen:
+        print("  (nothing selected — cancelled)")
+        return
+
+    pick = input("\n  Target window in days (e.g. 30 or 90): ").strip()
+    if not pick.isdigit():
+        print("  (not a number — cancelled)")
+        return
+    requested_days = int(pick)
+
+    force = input(f"  Overwrite a niche that already has a {requested_days}d "
+                  f"build? [y/N]: ").strip().lower() == "y"
+
+    sliced, skipped_too_thin, skipped_exists, skipped_empty = [], [], [], []
+    for base, (longest_days, _) in chosen:
+        if longest_days <= requested_days:
+            skipped_too_thin.append((base, longest_days))
+            continue
+        dest_key = _p.with_window(base, requested_days)
+        if collector.database_exists(dest_key) and not force:
+            skipped_exists.append(base)
+            continue
+        print(f"\n  {base}:")
+        r = _slice_one_niche(base, requested_days)
+        if r["status"] == "sliced":
+            sliced.append((base, r["videos"]))
+        elif r["status"] == "empty_after_slice":
+            skipped_empty.append(base)
+        else:
+            skipped_too_thin.append((base, longest_days))
+
+    print("\n" + "=" * 60)
+    print(f"  Bulk slice to {requested_days}d — done")
+    print("=" * 60)
+    if sliced:
+        print(f"\n  Sliced ({len(sliced)}):")
+        for base, n in sliced:
+            print(f"    {base:<28} {n:,} videos")
+    if skipped_too_thin:
+        print(f"\n  Skipped — no build longer than {requested_days}d exists "
+              f"({len(skipped_too_thin)}):")
+        for base, longest_days in skipped_too_thin:
+            print(f"    {base:<28} longest available: {longest_days}d")
+    if skipped_empty:
+        print(f"\n  Skipped — longer build exists but has nothing inside "
+              f"{requested_days}d ({len(skipped_empty)}):")
+        for base in skipped_empty:
+            print(f"    {base}")
+    if skipped_exists:
+        print(f"\n  Skipped — already has a {requested_days}d build "
+              f"({len(skipped_exists)}, re-run with overwrite to redo):")
+        for base in skipped_exists:
+            print(f"    {base}")
+    print()
+
+    if sliced and input("  Run discovery (option 3) on all newly sliced "
+                        "niches now? [y/N]: ").strip().lower() == "y":
+        print(f"\n  Running discovery across {len(sliced)} niche(s) — "
+              f"no API cost, but this takes real compute time per niche.")
+        for base, _ in sliced:
+            dest_key = _p.with_window(base, requested_days)
+            print(f"\n  --- {dest_key} ---")
+            try:
+                discover_opportunities(dest_key)
+            except Exception as e:
+                print(f"    (discovery failed for {base}: "
+                      f"{type(e).__name__}: {e})")
+
+
 
 
 def _pick_niche(prompt="Niche display name: "):
@@ -829,8 +977,9 @@ def _menu():
     print("  9) What changed since the last build")
     print(" 10) Compare all niches side by side")
     print(" 11) Regenerate stats/insights/metadata from an edited videos.csv")
-    print(" 12) Quit")
-    return input("\nChoose [1-12]: ").strip()
+    print(" 12) Bulk-slice your whole niche library to one window (free)")
+    print(" 13) Quit")
+    return input("\nChoose [1-13]: ").strip()
 
 
 def _dispatch(choice):
@@ -967,6 +1116,9 @@ def _dispatch(choice):
                     print(f"      {result['hint']}")
 
     elif choice == "12":
+        _dispatch_bulk_slice()
+
+    elif choice == "13":
         return "quit"
 
     else:
@@ -1005,7 +1157,16 @@ def _dispatch_compare():
               f"{', '.join(windows)}.")
         pick = input(f"  Compare which window? ({'/'.join(windows)} — "
                      f"Enter for {windows[0]}, the longest): ").strip()
+        # Accept "30" as well as "30d" — the bare-number version was
+        # silently falling through to the default window with zero
+        # indication that happened, which is worse than a typo: it
+        # looks like it worked and quietly compares the wrong data.
+        if pick and pick.isdigit():
+            pick = f"{pick}d"
         chosen_window = pick if pick in windows else windows[0]
+        if pick and chosen_window != pick:
+            print(f"  ⚠️  {pick!r} isn't one of your built windows "
+                  f"({', '.join(windows)}) — using {chosen_window} instead.")
         keys = _cmp.keys_at_window(chosen_window)
     else:
         keys = _cmp.preferred_keys()

@@ -33,7 +33,9 @@ Three pillars: **Demand** (inferred from engagement velocity and consumption), *
 8) Tear down a single channel
 9) What changed since the last build
 10) Compare all niches side by side
-11) Quit
+11) Regenerate stats/insights/metadata from an edited videos.csv
+12) Bulk-slice your whole niche library to one window
+13) Quit
 ```
 
 ## Workflows

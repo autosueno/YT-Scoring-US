@@ -1583,7 +1583,67 @@ def build_niche_database(api_key, niche_name, query=None, max_results=None,
     _rank = df.attrs.get("rank_map") if hasattr(df, "attrs") else None
     _exh = df.attrs.get("exhausted") if hasattr(df, "attrs") else None
     _seeds = df.attrs.get("seeds") if hasattr(df, "attrs") else None
+    raw_count = len(df)
     df, shorts_df = apply_quality_filters(df, return_shorts=True)
+
+    # ADAPTIVE TOP-UP — added after a real build (home_renovation_diy)
+    # came back at 1,129 of a 3,000 target despite the SEARCH succeeding
+    # fully (6,149 of 6,500 raw videos found). COLLECTION_OVERSHOOT=1.6
+    # assumes ~62% of raw videos survive quality filtering, uniformly,
+    # for every niche. That niche's real survival was 18.4% — over 3x
+    # worse — because home-improvement content is naturally dominated by
+    # short before/after clips, not because anything failed. A single
+    # fixed multiplier cannot fit both a Shorts-heavy niche and a
+    # documentary-heavy one.
+    #
+    # Rather than accept the shortfall blind, measure the REAL survival
+    # rate from what was just collected, and — if it's running well
+    # below what was assumed, and there's still live quota — go back for
+    # ONE corrected top-up round sized to the ACTUAL rate instead of the
+    # assumed one. Bounded to a single retry: this is a correction for a
+    # wrong assumption, not a loop chasing a target that may not exist
+    # (a niche can be genuinely too small, and no amount of re-asking
+    # fixes that — see the "INCOMPLETE BUILD" path below, which still
+    # applies if the top-up isn't enough).
+    real_survival = (len(df) / raw_count) if raw_count else None
+    keys_exhausted_early = isinstance(api_key, ApiKeyManager) and api_key.exhausted
+    shortfall = max_results - len(df)
+    assumed_survival = 1 / COLLECTION_OVERSHOOT if COLLECTION_OVERSHOOT else 1
+
+    if (real_survival and shortfall > 0 and not keys_exhausted_early
+            and real_survival < assumed_survival * 0.6):
+        topup_raw_needed = int(shortfall / real_survival * 1.15)  # 15% margin
+        # Safety cap: a genuinely thin niche (very low real_survival) could
+        # otherwise compute a huge top-up request. This is a correction for
+        # a wrong ASSUMPTION, not a promise to hit max_results no matter
+        # what the niche actually contains — capped at 2x the original
+        # collect_target, same order of magnitude as the first request, not
+        # an open-ended chase.
+        cap = collect_target * 2
+        if topup_raw_needed > cap:
+            print(f"\n  Real survival rate ({real_survival:.0%}) implies needing "
+                  f"{topup_raw_needed:,} more raw videos to fully close the gap — "
+                  f"capped at {cap:,} instead. This niche may genuinely be "
+                  f"smaller than the target, not just under-collected.")
+            topup_raw_needed = cap
+        else:
+            print(f"\n  Real survival rate ({real_survival:.0%}) is well below the "
+                  f"assumed {assumed_survival:.0%} — this niche is naturally "
+                  f"Shorts-heavy or otherwise filter-heavy, not a search failure.")
+        print(f"  Requesting one corrected top-up round: {topup_raw_needed:,} "
+              f"more raw videos, sized to the observed rate instead of the "
+              f"original assumption.")
+        topup_df, _ = _collect_raw(api_key, query, topup_raw_needed, order,
+                                   tracker, lookback_days=lookback_days)
+        topup_df, topup_shorts = apply_quality_filters(topup_df, return_shorts=True)
+        before = len(df)
+        df = pd.concat([df, topup_df], ignore_index=True)
+        df = df.drop_duplicates(subset="video_id", keep="first").reset_index(drop=True)
+        shorts_df = pd.concat([shorts_df, topup_shorts], ignore_index=True)
+        shorts_df = shorts_df.drop_duplicates(subset="video_id", keep="first").reset_index(drop=True)
+        print(f"  Top-up added {len(df) - before:,} new usable videos "
+              f"({len(df):,} total, target was {max_results:,}).")
+
     if _rank:
         df.attrs["seeds"] = _seeds or []
         search_depth_diagnostic(df, _rank, _exh)

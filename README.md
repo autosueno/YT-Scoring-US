@@ -38,7 +38,9 @@ py main.py
 | **8** | Tear down a single channel | free |
 | **9** | What changed since the last build | free |
 | **10** | Compare all niches side by side | free |
-| **11** | Quit | — |
+| **11** | Regenerate stats/insights/metadata from an edited videos.csv | free |
+| **12** | Bulk-slice your whole niche library to one window | free |
+| **13** | Quit | — |
 
 ## Output layout
 

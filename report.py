@@ -108,6 +108,9 @@ def print_grade(result: dict):
         print()
         print(f"  ►  OPPORTUNITY : {score:.1f} / 100   [{grade}]  {_grade_emoji(grade)}")
         print(f"     Verdict     : {result.get('verdict', '—')}")
+        warning = result.get("grade_calibration_warning")
+        if warning:
+            print(f"     ⚠️  {warning}")
 
     # Opportunity indicators
     ind = result.get("indicators", {})
@@ -229,13 +232,51 @@ def _build_niche_summary_lines(meta: dict, df: pd.DataFrame) -> list:
                      "for the calibrated reading.")
             p75 = None
 
-        d = calibration.describe(meta["p90_views"], p75)
+        lookback = meta.get("lookback_days")
+        d = calibration.describe(meta["p90_views"], p75, window_days=lookback)
         if d["ceiling_text"]:
             L.append(f"\n    Market size   : {d['ceiling_text']}.")
         if d["spread_text"]:
             L.append(f"    Spread reading: {d['spread_text']} "
                      f"({calibration.spread_range_text(d['ratio'])} from a "
                      f"decent video to a hit).")
+            # 30d/90d now have their own real calibration (see
+            # calibration.WINDOW_CALIBRATION) — this warning is only for
+            # windows that STILL have none (45d/60d/180d/etc.), where
+            # describe() silently falls back to 365d numbers.
+            if lookback and lookback not in (365, *calibration.WINDOW_CALIBRATION):
+                # FOUND, NOT ASSUMED: tested whether a niche's spread
+                # ratio moves predictably as the collection window
+                # shrinks. It does move — but NOT in one consistent
+                # direction. Sliced all 11 real calibration niches at
+                # 30/90/180/365 days (free, from existing 365d data, no
+                # API cost): most show a HUMP — ratio rises from 30d to
+                # a peak around 90d, then falls toward 365d — while a
+                # minority (memory_stocks, personal_psychology) rise
+                # monotonically the whole way. Re-ran using
+                # views_per_hour instead of raw view_count specifically
+                # to rule out "raw views just conflate age with
+                # performance" as the explanation — the same non-
+                # monotonic pattern persisted, so that wasn't it either.
+                # Likely mechanism: views_per_hour is a LIFETIME average,
+                # not an instantaneous rate — young videos' average is
+                # dominated by their initial burst (where hits and duds
+                # differ most), old videos' average blends in months of
+                # long-tail traffic (where they look far more alike).
+                # Whatever the mechanism, the practical result is that
+                # this reading was calibrated entirely on 365-day data
+                # and there is no safe correction factor to apply for a
+                # shorter window — it could read gentler OR brutaler than
+                # the true 365-day picture, and which one depends on the
+                # niche, not the window length alone.
+                L.append(f"    ⚠️  This reading was calibrated on 365-day "
+                         f"data; this niche was built at {lookback} days. "
+                         f"Real testing across 11 niches found spread "
+                         f"ratios shift by window length in a direction "
+                         f"that varies by niche, not predictably — treat "
+                         f"this label as a rough signal, not the "
+                         f"calibrated reading, until compared against "
+                         f"this same niche's own 365-day build.")
         if d["decent_pay"]:
             # The number that makes the grade concrete. "Brutal" means
             # something very different at 27,000 views a decent video
@@ -243,9 +284,10 @@ def _build_niche_summary_lines(meta: dict, df: pd.DataFrame) -> list:
             L.append(f"    A decent video: ~{d['decent_pay']:,.0f} views "
                      f"(better than 75% of the niche)")
         if d["thin_calibration"]:
+            cal = calibration.WINDOW_CALIBRATION.get(lookback)
+            large_n = cal["large_n"] if cal else calibration.SPREAD_CALIBRATION_LARGE_N
             L.append(f"\n    ⓘ  Large-market thresholds rest on only "
-                     f"{calibration.SPREAD_CALIBRATION_LARGE_N} niches — "
-                     f"treat this reading as provisional.")
+                     f"{large_n} niches — treat this reading as provisional.")
         if d["warning"]:
             L.append(f"\n    ⚠️  {d['warning']}")
 

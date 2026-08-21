@@ -208,6 +208,33 @@ def _grade(df, baseline, name, kind, lookback_days=None):
     }
     if kind == "topic":
         result["niche"] = baseline.niche_name
+        # HONEST LABEL, NOT A FIX: grade/verdict above still come from
+        # GRADE_THRESHOLDS/VERDICT_HIGH/VERDICT_LOW — fixed absolute
+        # cutoffs. Niche grading got a real fix for exactly this
+        # problem: crossniche.py computes the letter grade from the
+        # ACTUAL distribution of niches being compared, not a fixed
+        # range measured on some other run. That fix cannot honestly be
+        # copied here yet — it works by pooling many niches graded
+        # together in one sweep, and there is no topic-sweep equivalent;
+        # topics are graded one at a time, and as of this fix, this
+        # project has real grading data for exactly ONE topic ever run.
+        # Inventing a "relative" topic threshold from n=1 would be
+        # exactly the kind of unvalidated constant this project has
+        # spent real effort removing elsewhere — worse than the
+        # absolute threshold it would replace, because it would LOOK
+        # calibrated without being calibrated. The honest fix right now
+        # is this label, not a fake mechanism. Revisit once enough
+        # topics have real grades to pool (5 are already queued) — see
+        # the flagged item in the project's outstanding-items handoff.
+        result["grade_calibration_warning"] = (
+            "This grade and verdict use the same fixed thresholds as "
+            "niche grading did BEFORE it was fixed to compare against "
+            "other real niches — topic grading has no equivalent pool "
+            "to compare against yet. Read the underlying demand/supply "
+            "pillar scores directly; treat the letter grade and verdict "
+            "text with real skepticism until this has enough real data "
+            "to calibrate properly."
+        )
     result["highlights"] = _highlights(df, baseline, result)
     return result
 

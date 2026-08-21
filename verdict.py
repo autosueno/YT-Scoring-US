@@ -137,15 +137,32 @@ ANCHORS = {
     # Revenue per successful video (top-decile median views x RPM/1000),
     # log10 scaled because it spans orders of magnitude.
     #
-    # PROVISIONAL-v2. Observed revenue-per-winner at mid RPM: $134
-    # (home_espresso) to $3,260 (world_war_two) — log10 range 2.13 to
-    # 3.51. The old anchor's ceiling ($1,000 / log10=3.0) was already
-    # BELOW the real max, meaning ancient_history and world_war_two both
-    # clamped to 100 and became indistinguishable despite a real 23%
-    # difference in what they pay per winner. This is the exact clamping
-    # problem flagged when this framework was first reviewed. New anchor
-    # covers observed range with margin above the real ceiling.
-    "log_revenue": (1.93, 3.81),
+    # REWARD ANCHOR — CHANGED FROM REVENUE TO RAW REACH.
+    #
+    # Previously log10(revenue), where revenue = p90_views * RPM / 1000.
+    # Removed by explicit decision: RPM is a declared, editable estimate
+    # (rpm_rates.csv) with no ground truth behind it, and letting it
+    # drive a WEIGHTED SCORE meant an uncertain, self-reported number
+    # was silently deciding part of a niche's ranking. RPM is still
+    # looked up and reported — see match_rpm / score_profile's
+    # "probable_rpm" field — but only as information shown alongside
+    # the result, never as an input the composite score depends on.
+    #
+    # log_p90_views replaces it: same log-scale reasoning (reach spans
+    # orders of magnitude, same as revenue did), but built on the one
+    # number in this pillar that is actually MEASURED — a niche's own
+    # top-decile view count — rather than that measurement multiplied
+    # by a guess.
+    #
+    # Derived the same way log_revenue was: real observed range across
+    # every niche on hand (17, not 11 — this project has grown since
+    # log_revenue was last set), plus margin on both ends so a future
+    # niche outside today's observed range doesn't immediately clamp.
+    # Observed log10(p90_views): 3.93 (small_business) to 5.89
+    # (unsolved_mysteries). Anchor set to (3.7, 6.2) — roughly the same
+    # proportional margin log_revenue used (about 0.2 below the low end,
+    # 0.3 above the high end).
+    "log_p90_views": (3.7, 6.2),
     # "reliability" is NOT listed here — it has no fixed anchor pair.
     # It reuses calibration.py's already-measured, SIZE-AWARE P90/P75
     # spread RANGE (calibration.observed_range_for — large markets
@@ -161,14 +178,35 @@ ANCHORS = {
 }
 
 WEIGHTS = {
-    "entry": 0.29,          # can a newcomer rank at all
-    "reward": 0.29,         # what a win is worth
-    "durability": 0.24,     # does the catalogue compound
-    "reliability": 0.10,    # outcome-concentration proxy — see note below
+    "entry": 0.32,          # can a newcomer rank at all — HIGHEST, by request
+    "reliability": 0.24,    # outcome-concentration proxy — SECOND, by request
+    "durability": 0.20,     # does the catalogue compound
+    "reward": 0.16,         # reach of a winning video (see log_p90_views above)
     "effort": 0.08,         # cost per attempt — see note below
 }
-# reliability was added at 0.20, then CUT to 0.10 after review — worth
-# recording why the first number was wrong, not just the second one.
+# REORDERED BY EXPLICIT REQUEST, not by a new confidence finding: entry
+# stays highest (unchanged), but reliability was moved from lowest
+# (0.10) to second-highest (0.24), ahead of durability. Worth being
+# direct about the tension this creates: durability's construct
+# validity was already established as STRONGER than reliability's (see
+# the reasoning kept below — durability directly measures "do old
+# videos still earn," reliability only measures a compression ratio
+# that COULD mean predictability but hasn't been checked against real
+# outcome data). This reordering does not resolve that gap — it means
+# reliability is now weighted above a dimension with better-supported
+# validity, as a deliberate choice about what matters most to act on
+# right now, not as a claim that reliability became more trustworthy.
+# If it's later checked against real outcomes and doesn't hold up, this
+# weighting will have been wrong in a specific, correctable direction —
+# worth remembering rather than re-deriving from scratch next time.
+#
+# reward dropped from 0.29 to 0.16 as a direct consequence of removing
+# RPM from scoring (see log_p90_views above) — a raw-reach measure is a
+# real, still-useful signal, but it answers a narrower question than
+# "what a win is worth" did, so it no longer earns a top-two weight.
+#
+# ORIGINAL reliability-weight reasoning, kept for the construct-validity
+# context above (the 0.20->0.10 history, not the current number):
 #
 # The original justification claimed reliability "shares durability's
 # construct-validity profile: both are close to definitional
@@ -548,8 +586,18 @@ def _reliability_score(prof):
     if not p90 or not p75 or p75 <= 0:
         return None
     ratio = p90 / p75
-    size = calibration.ceiling_band(p90)[0] or "small"
-    lo, hi = calibration.observed_range_for(size)
+    # FOUND, NOT ASSUMED: this was calling calibration's window-aware
+    # functions with no window at all, which defaults to 365d — so
+    # every niche's Reliability score was silently graded against 365d
+    # size/spread calibration regardless of its real collection window,
+    # the exact same bug just fixed in report.py's single-niche summary.
+    # prof["window"] carries the real window as a string ("365d", "90d",
+    # "30d", or "?" for a bare unwindowed key) — parse it to the int
+    # calibration.py's functions expect.
+    window_str = prof.get("window") or ""
+    window_days = int(window_str[:-1]) if window_str[:-1].isdigit() and window_str.endswith("d") else None
+    size = calibration.ceiling_band(p90, window_days)[0] or "small"
+    lo, hi = calibration.observed_range_for(size, window_days)
     # Margin outside the observed extremes, same pattern used for every
     # other anchor in this file — contains the population rather than
     # clipping it, and leaves room for a niche outside the current 11 to
@@ -565,15 +613,26 @@ def _reliability_score(prof):
 
 def score_profile(prof, rpm, level="mid"):
     """
-    Turn one profile into four dimension scores plus a composite, at one
-    RPM level. Missing inputs propagate as None rather than defaulting to
-    a middling value — a fabricated 50 would move the ranking while
+    Turn one profile into five dimension scores plus a composite.
+    Missing inputs propagate as None rather than defaulting to a
+    middling value — a fabricated 50 would move the ranking while
     looking like evidence.
+
+    RPM NO LONGER FEEDS THE SCORE. It used to: reward was log10(revenue),
+    where revenue = p90_views * RPM / 1000, so an editable, no-ground-
+    truth number in rpm_rates.csv was silently deciding part of a
+    niche's ranking. Removed by explicit request — RPM is still looked
+    up and returned below (see "probable_rpm" / "revenue_per_winner_at_
+    probable_rpm" in the output) so a reader can see the money estimate
+    the tool THINKS is likely, but it is informational now, not a
+    scoring input. `level` is kept as a parameter purely so the probable-
+    RPM figure shown can still be picked at low/mid/high if a caller
+    wants that — it has no effect on any of the five dimension scores.
     """
     rate = float(rpm.get(f"rpm_{level}") or 0)
 
     # Entry as a GATE, not an average — deferred earlier for lack of
-    # data, now built with 11 real niches behind it.
+    # data, now built with real niches behind it.
     #
     # A flat average of underdog_share and amateur_floor let a niche with
     # ZERO newcomer winners still score up to 50 on entry, as long as its
@@ -593,10 +652,11 @@ def score_profile(prof, rpm, level="mid"):
     else:
         entry = None
 
-    # Revenue per successful video, not per niche: what one video that
-    # reaches the top decile is worth.
-    rev = (prof.get("p90_views") or 0) * rate / 1000.0
-    reward = _lin(math.log10(rev) if rev > 0 else 0.0, *ANCHORS["log_revenue"])
+    # Reach of a winning video — see ANCHORS["log_p90_views"] for why
+    # this replaced a revenue estimate. Pure measurement: a niche's own
+    # top-decile view count, nothing multiplied onto it.
+    p90 = prof.get("p90_views") or 0
+    reward = _lin(math.log10(p90) if p90 > 0 else None, *ANCHORS["log_p90_views"])
 
     # Durability scored on log10 of itself — see ANCHORS["durability_log10"]
     # for why: the raw ratio spans 2.5 orders of magnitude and a linear
@@ -621,26 +681,30 @@ def score_profile(prof, rpm, level="mid"):
     else:
         composite = None
 
+    # RPM: informational only, from here down. Not read by anything
+    # above this comment.
+    revenue_at_probable_rpm = (p90 * rate / 1000.0) if p90 and rate else None
+
     return {
         **dims,
         "composite": composite,
-        "revenue_per_winner": rev,
-        "rpm_used": rate,
+        "probable_rpm": rate or None,
+        "revenue_per_winner_at_probable_rpm": revenue_at_probable_rpm,
         "dimensions_measured": len(usable),
     }
 
 
-def _rank_order(scored, level):
-    """Niche keys ordered best-first at one RPM level."""
-    rows = [(k, s[level]["composite"]) for k, s in scored.items()
-            if s[level]["composite"] is not None]
+def _rank_order(scored):
+    """Niche keys ordered best-first by composite score."""
+    rows = [(k, s["composite"]) for k, s in scored.items()
+            if s["composite"] is not None]
     return [k for k, _ in sorted(rows, key=lambda x: -x[1])]
 
 
-def weight_sensitivity(scored, level="mid", alt_weightings=None):
+def weight_sensitivity(scored, alt_weightings=None):
     """
     How much does the composite RANKING move under different plausible
-    weightings of entry/reward/durability/effort?
+    weightings of entry/reward/durability/reliability/effort?
 
     This exists because "the weights are unvalidated" is a real,
     recurring critique of this framework, and re-deriving them from
@@ -664,8 +728,7 @@ def weight_sensitivity(scored, level="mid", alt_weightings=None):
     import pandas as pd
 
     dims = ("entry", "reward", "durability", "reliability", "effort")
-    rows = {k: s[level] for k, s in scored.items()
-            if s[level].get("composite") is not None}
+    rows = {k: s for k, s in scored.items() if s.get("composite") is not None}
     if len(rows) < 3:
         return []
 
@@ -711,8 +774,17 @@ def weight_sensitivity(scored, level="mid", alt_weightings=None):
 
 def analyse(niche_keys, window=None):
     """
-    Full comparison. Returns a dict carrying profiles, per-level scores,
-    the ranking at each RPM level, and whether the ranking is stable.
+    Full comparison. Returns a dict carrying profiles, one score set per
+    niche, the ranking, and dimension-level trade-offs.
+
+    Used to score every niche at THREE RPM levels (low/mid/high) and
+    check whether the ranking held across all three — that made sense
+    when RPM drove part of the composite. It no longer does (see
+    score_profile's docstring), so scoring at three levels now produces
+    three IDENTICAL rankings by construction — real compute spent
+    confirming something guaranteed true before it ran. Scores once,
+    at "mid", and keeps RPM lookups (low/mid/high) only for the
+    probable-RPM figure shown alongside the result.
     """
     rpm_table = load_rpm_table()
     profiles, rpms, scored, skipped = {}, {}, {}, []
@@ -724,14 +796,12 @@ def analyse(niche_keys, window=None):
             continue
         profiles[key] = prof
         rpms[key] = match_rpm(prof["niche"], rpm_table)
-        scored[key] = {lvl: score_profile(prof, rpms[key], lvl)
-                       for lvl in ("low", "mid", "high")}
+        scored[key] = score_profile(prof, rpms[key], "mid")
 
     if not profiles:
         return {"error": "no_usable_datasets", "skipped": skipped}
 
-    orders = {lvl: _rank_order(scored, lvl) for lvl in ("low", "mid", "high")}
-    stable = len({tuple(o) for o in orders.values()}) == 1
+    order = _rank_order(scored)
 
     # Do the dimensions disagree about the SAME niche pair? If the top
     # niche on one dimension is not the top on another by a wide margin,
@@ -739,8 +809,8 @@ def analyse(niche_keys, window=None):
     conflicts = []
     if len(profiles) >= 2:
         for dim in ("entry", "reward", "durability", "reliability", "effort"):
-            vals = {k: scored[k]["mid"][dim] for k in profiles
-                    if scored[k]["mid"][dim] is not None}
+            vals = {k: scored[k][dim] for k in profiles
+                    if scored[k][dim] is not None}
             if len(vals) < 2:
                 continue
             best = max(vals, key=vals.get)
@@ -759,8 +829,7 @@ def analyse(niche_keys, window=None):
         "profiles": profiles,
         "rpms": rpms,
         "scored": scored,
-        "orders": orders,
-        "stable_ranking": stable,
+        "order": order,
         "conflicts": conflicts,
         "trade_off": trade_off,
         "skipped": skipped,
@@ -797,47 +866,58 @@ def verdict_text(res):
     """
     The sentence the whole report exists to produce.
 
-    Three shapes, chosen by what the data supports:
+    Two shapes now, not three — chosen by what the data supports:
       - one niche leads everywhere -> name it
-      - ranking survives the RPM band but dimensions conflict -> name it,
-        then state what it costs
-      - ranking flips with RPM -> refuse to rank, give the condition
+      - dimensions conflict (different niches lead different
+        dimensions) -> name the overall leader, then state what it
+        costs relative to the runner-up
+
+    A third shape used to exist here: "ranking flips with RPM -> refuse
+    to rank, give the condition." That branch is gone because it
+    described something that can no longer happen — RPM does not feed
+    the composite anymore (see score_profile's docstring), so there is
+    only one ranking to report, not three to compare.
     """
     if res.get("error"):
         return "Not enough data to compare."
     disp = {k: res["profiles"][k]["niche"] for k in res["profiles"]}
-    mid = res["orders"]["mid"]
-    if not mid:
+    order = res["order"]
+    if not order:
         return "No niche had enough measurable dimensions to score."
-    if len(mid) == 1:
-        return f"Only {disp[mid[0]]} had a usable dataset."
+    if len(order) == 1:
+        return f"Only {disp[order[0]]} had a usable dataset."
 
-    first, second = mid[0], mid[1]
-
-    if not res["stable_ranking"]:
-        lo_first = res["orders"]["low"][0]
-        hi_first = res["orders"]["high"][0]
-        return (
-            f"The ranking depends on ad rates. At the low end of the RPM "
-            f"band {disp[lo_first]} wins; at the high end {disp[hi_first]} "
-            f"does. Settle your own RPM before treating either as the "
-            f"answer — the measured differences are smaller than the "
-            f"uncertainty in the rates."
-        )
+    first, second = order[0], order[1]
 
     if res["trade_off"]:
-        theirs = [c for c in res["conflicts"] if c["leader"] == second]
-        gained = ", ".join(_DIM_LABEL[c["dimension"]] for c in theirs[:2])
-        return (
-            f"{disp[first]} scores highest overall and the order holds "
-            f"across the whole RPM band. But these niches suit different "
-            f"operators: {disp[second]} is the better choice on "
-            f"{gained}. Pick on which of those you can actually sustain."
-        )
+        # FOUND BY TESTING, NOT ASSUMED: this used to only ever look at
+        # whether the #2 niche BY COMPOSITE specifically led some
+        # dimension. With more than 2 niches in the pool, the niche that
+        # actually leads a dimension the overall winner doesn't can be
+        # ranked 3rd, 4th, anywhere — not necessarily #2. When that
+        # happened, "theirs" came back empty and the sentence rendered
+        # with a blank list ("...is the better choice on . Pick...").
+        # Confirmed live on a real 5-niche comparison. Fixed by picking
+        # whichever OTHER niche actually leads a real dimension against
+        # the overall winner, rather than assuming it must be the
+        # runner-up.
+        rivals = [c for c in res["conflicts"] if c["leader"] != first]
+        if rivals:
+            # the rival ranked highest overall among those with a real
+            # conflict, so the sentence names the most relevant
+            # contender rather than an arbitrary one
+            rival = min({c["leader"] for c in rivals}, key=order.index)
+            theirs = [c for c in rivals if c["leader"] == rival]
+            gained = ", ".join(_DIM_LABEL[c["dimension"]] for c in theirs[:2])
+            return (
+                f"{disp[first]} scores highest overall. But these niches "
+                f"suit different operators: {disp[rival]} is the better "
+                f"choice on {gained}. Pick on which of those you can "
+                f"actually sustain."
+            )
 
-    return (f"{disp[first]} leads on every dimension measured, and the "
-            f"order holds across the whole RPM band. It is the clearer "
-            f"entry.")
+    return (f"{disp[first]} leads on every dimension measured. It is the "
+            f"clearer entry.")
 
 
 # ============================================================
@@ -1010,7 +1090,7 @@ def render_html(res):
     if res.get("error"):
         return "<p>Not enough data.</p>"
     P, S, R = res["profiles"], res["scored"], res["rpms"]
-    order = res["orders"]["mid"]
+    order = res["order"]
     disp = {k: P[k]["niche"] for k in P}
     lead = order[0] if order else None
 
@@ -1037,8 +1117,28 @@ def render_html(res):
 
     if not res["rpm_table_found"]:
         H.append('<div class="flag">rpm_rates.csv was not found beside '
-                 'main.py, so revenue is running on a flat fallback band. '
-                 'Add the file to make the reward dimension meaningful.</div>')
+                 'main.py, so the probable-revenue figure below is running '
+                 'on a flat fallback band. This does not affect any '
+                 'dimension score or the ranking — RPM is informational '
+                 'only. Add the file to make the revenue estimate itself '
+                 'meaningful.</div>')
+
+    # ---- simple table, FIRST — the headline numbers, before anything
+    # else. The deep per-dimension tables further down are real and
+    # worth having, but they should not be the first thing a reader has
+    # to parse to get the actual answer.
+    H.append('<h2>At a glance</h2>')
+    H.append('<table><tr><th>rank</th><th>niche</th>'
+             '<th class="num">overall</th><th>leads on</th></tr>')
+    for i, k in enumerate(order, 1):
+        s = S[k]
+        leads = [_DIM_LABEL[c["dimension"]] for c in res["conflicts"]
+                if c["leader"] == k]
+        leads_txt = ", ".join(leads[:2]) if leads else ("—" if i > 1 else "everything measured")
+        comp = f'{s["composite"]:.0f}' if s["composite"] is not None else "—"
+        H.append(f'<tr><td>{i}</td><td><b>{disp[k]}</b></td>'
+                 f'<td class="num"><b>{comp}</b></td><td>{leads_txt}</td></tr>')
+    H.append('</table>')
 
     # ---- signature figure ----
     H.append('<h2>Where the views actually go</h2>')
@@ -1056,16 +1156,16 @@ def render_html(res):
              'market. Whether that helps you depends on who posted it, '
              'which the entry table below answers.</figcaption></figure>')
 
-    # ---- dimension scores ----
+    # ---- dimension scores (the deep table — after the simple one above) ----
     H.append('<h2>Dimension scores</h2>')
-    H.append('<p class="sub">At mid-band RPM. Bars are relative to the '
-             'provisional anchors, not to each other.</p>')
+    H.append('<p class="sub">Bars are relative to the provisional anchors, '
+             'not to each other.</p>')
     H.append('<table><tr><th>niche</th>'
              + "".join(f'<th>{_DIM_LABEL[d]}</th>' for d in
                        ("entry", "reward", "durability", "reliability", "effort"))
              + '<th class="num">overall</th></tr>')
     for k in order:
-        s = S[k]["mid"]
+        s = S[k]
         H.append(f'<tr><td><b>{disp[k]}</b></td>')
         for d in ("entry", "reward", "durability", "reliability", "effort"):
             H.append(_bar(s[d], lead=(k == lead)))
@@ -1073,14 +1173,20 @@ def render_html(res):
         H.append(f'<td class="num"><b>{comp}</b></td></tr>')
     H.append('</table>')
 
-    # ---- RPM sensitivity ----
-    H.append('<h2>Does the answer survive the ad rates?</h2>')
+    # ---- probable RPM (informational only — see score_profile) ----
+    H.append('<h2>Probable ad revenue (not used in the score)</h2>')
+    H.append('<p class="sub">RPM is a declared estimate, not a '
+             'measurement — there is no ground truth behind it, so it no '
+             'longer drives any dimension score or the ranking above. '
+             'Shown here as information only: roughly what a top-decile '
+             'video in each niche might earn, if this rate turns out to '
+             'be close.</p>')
     H.append('<table><tr><th>niche</th><th class="num">RPM low</th>'
              '<th class="num">mid</th><th class="num">high</th>'
-             '<th class="num">$ per top-decile video (mid)</th>'
+             '<th class="num">probable $ per top-decile video</th>'
              '<th>rate confidence</th></tr>')
     for k in order:
-        r, s = R[k], S[k]["mid"]
+        r, s = R[k], S[k]
         H.append(
             f'<tr><td><b>{disp[k]}</b><br>'
             f'<span class="k" style="font-size:11.5px;color:var(--ink-soft)">'
@@ -1088,19 +1194,9 @@ def render_html(res):
             f'<td class="num">${_num(r.get("rpm_low"), 0)}</td>'
             f'<td class="num">${_num(r.get("rpm_mid"), 0)}</td>'
             f'<td class="num">${_num(r.get("rpm_high"), 0)}</td>'
-            f'<td class="num">${_num(s["revenue_per_winner"], 0)}</td>'
+            f'<td class="num">${_num(s.get("revenue_per_winner_at_probable_rpm"), 0)}</td>'
             f'<td>{r.get("confidence") or "—"}</td></tr>')
     H.append('</table>')
-
-    ranks = " &rarr; ".join(
-        f'<b>{lvl}:</b> ' + ", ".join(disp[k] for k in res["orders"][lvl])
-        for lvl in ("low", "mid", "high"))
-    H.append(f'<p class="note">Ranking at each RPM level — {ranks}. '
-             + ("The order does not change, so ad-rate uncertainty is not "
-                "driving this result."
-                if res["stable_ranking"] else
-                "<b>The order changes.</b> The measured differences are "
-                "smaller than the uncertainty in the rates.") + '</p>')
 
     risky = [k for k in order
              if str(R[k].get("limited_ads_risk")).lower() == "high"]
@@ -1180,7 +1276,7 @@ def export_verdict(niche_keys, window=None, exports_root=None, mismatch=None):
     os.makedirs(out_dir, exist_ok=True)
 
     stem = "_vs_".join(safe_name(res["profiles"][k]["niche"])
-                       for k in res["orders"]["mid"][:3])
+                       for k in res["order"][:3])
     if len(res["profiles"]) > 3:
         stem += f"_and_{len(res['profiles']) - 3}_more"
     wins = {res["profiles"][k]["window"] for k in res["profiles"]}

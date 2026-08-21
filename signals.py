@@ -394,8 +394,17 @@ def export_intent_report(seeds, video_df, niche_name, alphabet=True,
 
     gaps = find_intent_gaps(harvest, video_df)
     out_dir = search_export_dir(EXPORTS_DIR, niche_name)
-    md_path = os.path.join(out_dir, f"{stem}.md")
-    csv_path = os.path.join(out_dir, f"{stem}.csv")
+    # FOUND, NOT THEORETICAL: this used to write bare "intent_gaps.md" /
+    # "intent_gaps.csv" — the same filename for EVERY niche, regardless
+    # of which one was run. search_export_dir does put each niche in its
+    # own folder, so nothing was silently overwritten on disk — but the
+    # file itself carried no identifying information, which is exactly
+    # why sending two niches' reports together required manually
+    # renaming one first. _named() applies the same niche-prefix
+    # convention every other export in this engine already uses
+    # (<niche>_<window>_seo.json etc.) — this was the one exception.
+    md_path = os.path.join(out_dir, _named(niche_name, f"{stem}.md"))
+    csv_path = os.path.join(out_dir, _named(niche_name, f"{stem}.csv"))
 
     pd.DataFrame(gaps).to_csv(csv_path, index=False)
 
