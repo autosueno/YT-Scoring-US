@@ -978,8 +978,9 @@ def _menu():
     print(" 10) Compare all niches side by side")
     print(" 11) Regenerate stats/insights/metadata from an edited videos.csv")
     print(" 12) Bulk-slice your whole niche library to one window (free)")
-    print(" 13) Quit")
-    return input("\nChoose [1-13]: ").strip()
+    print(" 13) Compare two channels side by side")
+    print(" 14) Quit")
+    return input("\nChoose [1-14]: ").strip()
 
 
 def _dispatch(choice):
@@ -1119,6 +1120,9 @@ def _dispatch(choice):
         _dispatch_bulk_slice()
 
     elif choice == "13":
+        _dispatch_channel_diff()
+
+    elif choice == "14":
         return "quit"
 
     else:
@@ -1451,6 +1455,64 @@ def _dispatch_channel():
     print(f"\n  Analysed {len(df):,} videos")
     for k, v in paths.items():
         print(f"    {k:18s} → {v}")
+    report.print_quota(tracker)
+
+
+def _dispatch_channel_diff():
+    """
+    Option 13 — fetch two channels and compare them side by side.
+
+    Fetches both catalogs fresh (same cost as running option 8 twice),
+    then computes the diff and exports to exports/channels/<a_vs_b>/.
+
+    Optionally graded against a niche for the vs_niche fields, but that
+    is not required — the diff itself is niche-agnostic.
+    """
+    keys = _load_keys_or_exit()
+    tracker = QuotaTracker()
+    tracker.attach_keys(keys)
+
+    dfs, profiles, infos = [], [], []
+    for label in ("first", "second"):
+        raw = input(f"\n  {label.capitalize()} channel @handle, URL, or ID: ").strip()
+        if not raw:
+            print("  (nothing given — cancelled)")
+            return
+        kind, _ = channel_mod.parse_channel_input(raw)
+        if kind == "search":
+            print("  Note: that needs a name search (100 units). "
+                  "Pasting the @handle or /channel/UC... URL costs 1.")
+        print(f"  Resolving {label} channel...")
+        info = channel_mod.resolve_channel(keys, raw, tracker)
+        if not info:
+            print(f"  {label.capitalize()} channel not found. "
+                  "Check the handle or paste the full URL.")
+            return
+        print(f"  {info['title']} — {info['subscribers']:,} subs, "
+              f"{info['video_count']:,} videos published")
+        cap = min(info["video_count"], config.CHANNEL_MAX_VIDEOS)
+        est = 1 + 2 * -(-cap // 50)
+        print(f"  Will fetch up to {cap:,} videos (~{est} quota units)")
+        df = channel_mod.fetch_catalog(keys, info, tracker, max_videos=cap)
+        if df.empty:
+            print(f"  No videos retrieved for {info['title']}.")
+            return
+        niche = input(f"  Grade against a niche? (Enter to skip): ").strip() or None
+        profile = channel_mod.analyze_channel(df, info, niche_name=niche)
+        dfs.append(df)
+        profiles.append(profile)
+        infos.append(info)
+
+    if input("\n  Proceed with comparison? [Y/n]: ").strip().lower() == "n":
+        print("  (cancelled)")
+        return
+
+    diff = channel_mod.diff_channels(profiles[0], profiles[1], dfs[0], dfs[1])
+    channel_mod.print_diff(diff)
+    paths = channel_mod.export_diff_report(diff)
+    print("  Exported:")
+    for fmt, p in paths.items():
+        print(f"    {fmt:8s} → {p}")
     report.print_quota(tracker)
 
 

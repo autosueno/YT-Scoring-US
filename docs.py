@@ -56,7 +56,9 @@ MENU = [
      "Re-derive everything from a cleaned videos.csv — no API calls."),
     ("12", "Bulk-slice your whole niche library to one window", "free",
      "Slice every 365d niche down to 30d/90d/etc at once, from data you already have."),
-    ("13", "Quit", None, ""),
+    ("13", "Compare two channels side by side", "api",
+     "Fetch two channels and diff them on performance, cadence, format, and title/tag overlap."),
+    ("14", "Quit", None, ""),
 ]
 
 WORKFLOWS = [

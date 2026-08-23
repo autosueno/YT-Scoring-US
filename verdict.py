@@ -104,21 +104,26 @@ ANCHORS = {
     # means old videos outperform new ones — a real, measured finding on
     # two of eleven niches, not a modelling artefact.
     #
-    # PROVISIONAL-v2, and the anchor SHAPE changed, not just its values.
-    # Observed durability spans 0.0059 (memory_stocks — a stock-related
-    # niche where old videos are worth almost nothing) to 2.33
-    # (home_espresso and personal_finance_basics, where old videos
-    # outearn new ones) — two and a half orders of magnitude. The old
-    # linear anchor (0.05, 0.70) could not represent that spread: it
-    # clamped both niches above 0.70 to identical scores (hiding a real
-    # 3x difference between them) while barely moving for anything in
-    # the low range. Durability is now scored on log10 of itself,
-    # matching how reward already handles its own wide range. The values
-    # below are log10(durability), not durability directly:
-    #     log10(0.0059) = -2.23  (memory_stocks, the real floor)
-    #     log10(2.33)   =  0.37  (home/finance, the real ceiling)
-    # with margin outside both.
-    "durability_log10": (-2.43, 0.57),
+    # DURABILITY ANCHOR — CHANGED FROM LOG-RATIO TO PLAIN LINEAR.
+    #
+    # The old metric (median(old vph) / median(young vph)) spanned two
+    # and a half orders of magnitude and needed a log10 transform to
+    # avoid clamping. It also turned out to be UNSTABLE — see the
+    # durability computation in deep_profile for the full finding: a
+    # split-half stability test showed nearly 6x swings between two
+    # random halves of the SAME niche's data, on cohorts with 500-1200+
+    # videos each, not a small-sample problem. Rebuilt as a bounded
+    # percentile-rank question (what percentile of the young cohort's
+    # performance does the old cohort's median represent?), confirmed
+    # stable across 5 random seeds. Naturally bounded 0-100 — no log
+    # transform needed, it never had the orders-of-magnitude spread
+    # that made one necessary for the old formula.
+    #
+    # Observed range across 17 real niches: 14.7 (memory_stocks — old
+    # stock picks going stale, matches independent findings from the
+    # earlier Tier 4 work) to 61.7 (personal_finance_basics — evergreen
+    # budgeting advice, also matches intuition). Margin added both ends.
+    "durability_pct": (8.0, 68.0),
     # Median duration of top-decile videos, in seconds. Inverted: shorter
     # winners are cheaper to produce. Read as a PRODUCTION-LENGTH proxy —
     # length correlates with effort on average but is not effort itself,
@@ -178,80 +183,73 @@ ANCHORS = {
 }
 
 WEIGHTS = {
-    "entry": 0.32,          # can a newcomer rank at all — HIGHEST, by request
-    "reliability": 0.24,    # outcome-concentration proxy — SECOND, by request
-    "durability": 0.20,     # does the catalogue compound
+    "entry": 0.32,          # can a newcomer rank at all — highest, well-tested
+    "durability": 0.24,     # does the catalogue compound — RESTORED, see below
+    "reliability": 0.20,    # outcome-concentration proxy
     "reward": 0.16,         # reach of a winning video (see log_p90_views above)
-    "effort": 0.08,         # cost per attempt — see note below
+    "effort": 0.08,         # cost per attempt — weakest proxy, no fix attempted
 }
-# REORDERED BY EXPLICIT REQUEST, not by a new confidence finding: entry
-# stays highest (unchanged), but reliability was moved from lowest
-# (0.10) to second-highest (0.24), ahead of durability. Worth being
-# direct about the tension this creates: durability's construct
-# validity was already established as STRONGER than reliability's (see
-# the reasoning kept below — durability directly measures "do old
-# videos still earn," reliability only measures a compression ratio
-# that COULD mean predictability but hasn't been checked against real
-# outcome data). This reordering does not resolve that gap — it means
-# reliability is now weighted above a dimension with better-supported
-# validity, as a deliberate choice about what matters most to act on
-# right now, not as a claim that reliability became more trustworthy.
-# If it's later checked against real outcomes and doesn't hold up, this
-# weighting will have been wrong in a specific, correctable direction —
-# worth remembering rather than re-deriving from scratch next time.
+# THE FULL ARC ON DURABILITY VS RELIABILITY, kept in full because the
+# ranking flipped twice and each flip had a real, different reason —
+# worth being able to see why, not just the current numbers.
+#
+# 1. Originally: durability above reliability, on construct-validity
+#    grounds alone. "Do old videos still earn" is a direct, concrete
+#    question. Reliability's P90/P75 compression ratio is a PROXY for
+#    "are outcomes predictable" with a real inferential gap — a narrow
+#    ratio could mean genuine predictability, or just a compressed
+#    distribution for unrelated reasons. Nothing in this project had
+#    outcome data to tell those apart. That reasoning was never wrong,
+#    but it was also never TESTED — it was a confidence judgment, not a
+#    measurement.
+#
+# 2. Reordered on request: reliability moved above durability as an
+#    explicit product-priority decision, independent of the validity
+#    gap above. Flagged honestly at the time as a real tension, not
+#    resolved by the reorder.
+#
+# 3. Then durability was ACTUALLY TESTED, for the first time, with a
+#    split-half stability check — score each random half of the same
+#    niche's data independently, see if the two halves agree. They did
+#    not: swings up to nearly 6x between halves of the same dataset,
+#    on cohorts of 500-1200+ videos each. Not a small-sample problem —
+#    the root cause was views_per_hour's extreme skew (CV 3-5) making
+#    an unbounded ratio of two medians unstable regardless of sample
+#    size. This directly contradicted step 1's confidence judgment:
+#    durability LOOKED more trustworthy by reasoning, and turned out to
+#    be the least stable dimension of the three once actually checked.
+#
+# 4. Rebuilt, not just downweighted. Root-caused to the ratio being
+#    unbounded; replaced with a bounded percentile-rank formulation
+#    (see deep_profile's durability computation and
+#    ANCHORS["durability_pct"] for the full mechanism). Re-tested the
+#    same way: stable across 5 random seeds (spread 1.6-2.7x between
+#    halves), landing in the same range as reliability's own measured
+#    stability (2.6x) and reward's (2.7x) — not just "less unstable,"
+#    genuinely comparable to the two dimensions already trusted more.
+#
+# 5. This weighting. With durability's instability actually fixed and
+#    confirmed rather than assumed, its original construct-validity
+#    edge over reliability applies again — "do old videos still earn"
+#    is a direct measurement; reliability's compression ratio remains
+#    an unvalidated proxy for predictability, stability of the
+#    STATISTIC notwithstanding. Restored above reliability accordingly.
+#    Entry stays highest, unchanged and independently well-tested.
+#    Reliability keeps a real, substantial weight (0.20, not returned
+#    to its original 0.10) because its own construct-validity concern
+#    was never about the ratio being unstable — it was always about
+#    whether the ratio means what it claims to, which testing stability
+#    cannot answer either way. That question is unchanged by anything
+#    above and still needs real outcome data (repeat builds, actual
+#    channel results) to settle.
 #
 # reward dropped from 0.29 to 0.16 as a direct consequence of removing
 # RPM from scoring (see log_p90_views above) — a raw-reach measure is a
 # real, still-useful signal, but it answers a narrower question than
 # "what a win is worth" did, so it no longer earns a top-two weight.
 #
-# ORIGINAL reliability-weight reasoning, kept for the construct-validity
-# context above (the 0.20->0.10 history, not the current number):
-#
-# The original justification claimed reliability "shares durability's
-# construct-validity profile: both are close to definitional
-# operationalizations of what they claim to measure." That claim was
-# checked by a reviewer and did not hold up. P90/P75 measures the gap
-# between a niche's upper-middle and top performers. Reliability was
-# defined here as "how predictable a good result is once a video clears
-# the decent bar" — a claim about REPEATABILITY that the ratio does not
-# directly establish. A niche could have a narrow P90/P75 gap because
-# outcomes are genuinely consistent, or because the whole distribution
-# above P75 is simply compressed for reasons unrelated to predictability.
-# Nothing in this project distinguishes those cases, because nothing
-# here has outcome data — repeat builds of the same niche over time,
-# or actual creator results — to check which explanation is true.
-# Durability's construct validity is stronger by comparison: "do old
-# videos still earn" is close to a direct reading of "does the catalogue
-# compound," with no comparable inferential gap.
-#
-# Also checked and corrected: the original note claimed weak Pearson
-# correlation (max |r|=0.22 against the other four dimensions) as
-# evidence reliability was "not a restatement" of anything else. With
-# n=11, that is not a safe inference — Pearson correlation is unstable
-# at this sample size, weak linear correlation does not rule out a
-# nonlinear or threshold relationship, and the correct claim is narrower:
-# no strong LINEAR correlation was found in THIS sample. That is evidence
-# against the most obvious kind of redundancy, not evidence of genuine
-# independence.
-#
-# Given both of those corrections, 0.10 treats reliability as a real,
-# kept signal — the underlying ratio is real, calibrated, and reused
-# rather than invented — while reflecting materially lower confidence
-# than durability, reward, or entry carry. This is closer to the
-# "secondary modifier, pending validation" treatment a reviewer proposed
-# than to treating it as equally trustworthy. If it is later checked
-# against real outcomes (repeat builds, actual channel results) and
-# holds up, raising the weight would be a decision with evidence behind
-# it — this is not that decision.
-#
-# Checked with weight_sensitivity() after adding: see that function's
-# docstring for what it tests and why. Also checked: the 8% margin
-# choice below barely moves anything — composite ranking held at
-# Spearman >=0.991 across margins from 0% to 15%, top-3 identical at
-# every margin tested. The margin is not doing the substantive work in
-# this dimension; the CONSTRUCT-VALIDITY gap above is what matters and
-# no margin choice fixes that.
+# Checked with weight_sensitivity() after this reweighting: see that
+# function's docstring for what it tests and why.
 #
 # effort's weight was cut from 0.15 to 0.09 when this reasoning was
 # first written (redistributed proportionally to the other three, which
@@ -483,6 +481,34 @@ def deep_profile(niche_key):
         prof["winner_median_subs"] = None
 
     # ---- durability: does the back catalogue keep earning? -------
+    #
+    # REBUILT. The original formula — median(old vph) / median(young
+    # vph) — was found unstable by direct testing, not assumed fine
+    # because it looked like a simple, direct measurement. A split-half
+    # test (score each random half of the SAME niche's data
+    # independently, see if the two halves agree) showed swings up to
+    # nearly 6x between halves of the same dataset, on cohorts of
+    # 500-1200+ videos — not a thin-sample problem. Root cause:
+    # views_per_hour is extremely heavily skewed (CV of 3-5 measured
+    # directly), and a bare ratio of two medians of a skewed metric has
+    # no bound on how far one unlucky/lucky outlier can swing it.
+    #
+    # Tried and REJECTED first: trimmed median, P75 instead of median,
+    # raw view_count instead of vph, and retuning the age cutoffs —
+    # none meaningfully fixed it, and a boundary change that looked
+    # promising on one random split (182/60 -> 120/90) made things
+    # WORSE on other splits when re-tested across 5 different seeds —
+    # overfitting to one split, not a real fix.
+    #
+    # What actually worked: stop taking a ratio of two point estimates
+    # and ask a BOUNDED question instead — what percentile of the YOUNG
+    # cohort's performance does the OLD cohort's median represent?
+    # Naturally bounded 0-100, so a single extreme video cannot send it
+    # to 6x or 18x the way an unbounded ratio could. Confirmed stable
+    # across 5 random seeds (spread 1.6-2.7x between halves), comparable
+    # to reliability's and reward's independently-measured stability —
+    # not just "less bad," genuinely in the same range as the two
+    # dimensions this project already trusted more.
     prof["durability"] = None
     prof["durability_n"] = 0
     if {"hours_since_upload", "views_per_hour"}.issubset(df.columns):
@@ -493,8 +519,8 @@ def deep_profile(niche_key):
         young = vph[ok & (age <= YOUNG_COHORT_HOURS)]
         # Both cohorts need enough members for a median to mean anything.
         if len(old) >= 30 and len(young) >= 30:
-            ym = float(young.median())
-            prof["durability"] = float(old.median()) / ym if ym > 0 else None
+            old_median = float(old.median())
+            prof["durability"] = float((young < old_median).mean() * 100)
             prof["durability_n"] = int(min(len(old), len(young)))
 
     # ---- effort: what a winning video costs to make --------------
@@ -658,13 +684,15 @@ def score_profile(prof, rpm, level="mid"):
     p90 = prof.get("p90_views") or 0
     reward = _lin(math.log10(p90) if p90 > 0 else None, *ANCHORS["log_p90_views"])
 
-    # Durability scored on log10 of itself — see ANCHORS["durability_log10"]
-    # for why: the raw ratio spans 2.5 orders of magnitude and a linear
-    # anchor could not represent that without clamping real extremes into
-    # identical scores.
-    dur_raw = prof.get("durability")
-    dur_log = math.log10(dur_raw) if dur_raw and dur_raw > 0 else None
-    durability = _lin(dur_log, *ANCHORS["durability_log10"])
+    # Durability — see ANCHORS["durability_pct"] for the full story on
+    # why this is a plain linear score now, not log10 of a ratio.
+    # Passed straight to _lin(), which is None-safe on its own — no
+    # truthy check needed here, which matters because the metric can
+    # legitimately BE 0.0 (every young video outperforms the old
+    # cohort's median — a real, valid "very poor durability" reading).
+    # An `if dur_raw and ...` truthy guard would have silently discarded
+    # a real 0.0 as if the niche had no durability data at all.
+    durability = _lin(prof.get("durability"), *ANCHORS["durability_pct"])
     effort = _lin(prof.get("winner_duration_s"), *ANCHORS["effort_seconds"])
     reliability = _reliability_score(prof)
 
@@ -1222,8 +1250,9 @@ def render_html(res):
             ("Gini", _num(p.get("gini"), 3)),
             ("Biggest video vs P90", (f'{p["above_p90_reach"]:,.0f}x'
                                       if p.get("above_p90_reach") else "—")),
-            ("Old vs new views/hr", (f'{p["durability"]:.2f}'
-                                     if p.get("durability") else "not enough age spread")),
+            ("Durability (old-cohort percentile vs young)",
+             (f'{p["durability"]:.0f}th pct'
+              if p.get("durability") is not None else "not enough age spread")),
             ("Median length of a winner", (f'{p["winner_duration_s"]/60:.0f} min'
                                            if p.get("winner_duration_s") else "—")),
             ("Engagement among winners", _pct(p.get("winner_engagement"), 2)),

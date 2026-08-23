@@ -116,9 +116,26 @@ RELEVANCE_LANGUAGE = "en"
 #
 # For reference, with full a-z expansion (41 lookups per seed):
 #     5 seeds, no recursion   ->    205 lookups   ~1 min
+#     5 seeds, recurse 5      ->  1,230 lookups   ~7 min
 #     5 seeds, recurse 8      ->  1,845 lookups  ~11 min
+#    11 seeds, recurse 5      ->  2,706 lookups  ~16 min
 #    11 seeds, recurse 8      ->  4,059 lookups  ~24 min
-SIGNALS_RECURSE_TOP = 8
+#
+# CUT FROM 8 TO 5, BASED ON REAL DATA, NOT GUESSING:
+# Checked the actual intent-gap CSVs from two real niches (ancient_history,
+# cold_war) to see where useful signal concentrates. Key findings:
+# - At 5-word queries (recursion depth ~3): zero-match rate already 46-66%
+# - At 7-word queries (recursion depth ~5): zero-match rate 82-88%
+# - At 8+ word queries: essentially no useful signal remains
+# - All weight>=2 queries (the only ones with cross-lookup corroboration,
+#   and the only ones that should really be acted on) for ancient_history
+#   are within 6 words. Cold_war had a handful at 7-9 words, but those
+#   were marginal — 82-88% of their depth range found nothing in the
+#   niche catalog anyway.
+# Going to depth 8 was spending real wall-clock time generating queries
+# that produce no useful information. Depth 5 keeps everything that
+# matters while roughly halving the run time.
+SIGNALS_RECURSE_TOP = 5
 
 # Maximum seed terms accepted for ONE autocomplete harvest.
 #

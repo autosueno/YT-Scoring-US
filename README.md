@@ -40,7 +40,8 @@ py main.py
 | **10** | Compare all niches side by side | free |
 | **11** | Regenerate stats/insights/metadata from an edited videos.csv | free |
 | **12** | Bulk-slice your whole niche library to one window | free |
-| **13** | Quit | — |
+| **13** | Compare two channels side by side | — |
+| **14** | Quit | — |
 
 ## Output layout
 

@@ -931,3 +931,292 @@ def export_channel_report(df, profile, tracker=None) -> dict:
         print(f"  (transcript shortlist skipped: {type(e).__name__}: {e})")
 
     return paths
+
+
+# ============================================================
+# CHANNEL-VS-CHANNEL DIFF
+# ============================================================
+
+def diff_channels(profile_a, profile_b, df_a, df_b):
+    """
+    Side-by-side comparison of two channel profiles, highlighting the
+    differences that actually matter for a creator deciding which
+    channel to study or compete with.
+
+    Returns a structured dict so callers can render it however they
+    want (terminal, markdown, JSON). The terminal renderer is
+    export_diff_report() below.
+
+    Design principle: don't just print both profiles in parallel.
+    Compute DELTAS and call out the ones large enough to mean something.
+    A channel posting 20% more often than another is noise; one posting
+    4x more often is a real strategic difference.
+    """
+    a, b = profile_a, profile_b
+
+    def _num(d, key, default=None):
+        return d.get(key, default)
+
+    def _pct_delta(v_a, v_b):
+        """% change from b to a, None if either is missing/zero."""
+        if v_a is None or v_b is None or v_b == 0:
+            return None
+        return (v_a - v_b) / abs(v_b) * 100
+
+    def _flag(delta_pct, threshold=25):
+        """Arrow + magnitude label for a percentage delta."""
+        if delta_pct is None:
+            return "—"
+        if abs(delta_pct) < threshold:
+            return "similar"
+        direction = "▲" if delta_pct > 0 else "▼"
+        mag = abs(delta_pct)
+        label = "much" if mag > 100 else "somewhat"
+        return f"{direction} {label} higher" if delta_pct > 0 else f"{direction} {label} lower"
+
+    # ---- core performance ----
+    vph_a = float(df_a["views_per_hour"].median()) if "views_per_hour" in df_a.columns else None
+    vph_b = float(df_b["views_per_hour"].median()) if "views_per_hour" in df_b.columns else None
+    p90_a = float(df_a["view_count"].quantile(0.9)) if "view_count" in df_a.columns else None
+    p90_b = float(df_b["view_count"].quantile(0.9)) if "view_count" in df_b.columns else None
+    br_a = a.get("breakout_stats", {}).get("rate")
+    br_b = b.get("breakout_stats", {}).get("rate")
+
+    # ---- cadence ----
+    cad_a = a.get("cadence", {})
+    cad_b = b.get("cadence", {})
+    gap_a = cad_a.get("median_gap_days")
+    gap_b = cad_b.get("median_gap_days")
+
+    # ---- format ----
+    fmt_a = a.get("format", {})
+    fmt_b = b.get("format", {})
+    dur_a = fmt_a.get("median_duration_min")
+    dur_b = fmt_b.get("median_duration_min")
+
+    # ---- title overlap ----
+    def _top_words(profile, n=20):
+        tw = profile.get("titles", {}).get("top_words", [])
+        return {w["word"] for w in tw[:n]} if tw else set()
+
+    words_a = _top_words(a)
+    words_b = _top_words(b)
+    shared_words = words_a & words_b
+    only_a = words_a - words_b
+    only_b = words_b - words_a
+
+    # ---- tag overlap ----
+    def _top_tags(profile, n=20):
+        tags = profile.get("tags", {}).get("top_tags", [])
+        return {t["tag"] for t in tags[:n]} if tags else set()
+
+    tags_a = _top_tags(a)
+    tags_b = _top_tags(b)
+    shared_tags = tags_a & tags_b
+    only_tags_a = tags_a - tags_b
+    only_tags_b = tags_b - tags_a
+
+    # ---- trajectory ----
+    traj_a = a.get("trajectory", {}).get("direction", "unknown")
+    traj_b = b.get("trajectory", {}).get("direction", "unknown")
+
+    return {
+        "channels": [
+            a.get("channel", {}).get("title", "Channel A"),
+            b.get("channel", {}).get("title", "Channel B"),
+        ],
+        "performance": {
+            "median_vph": [vph_a, vph_b],
+            "median_vph_delta": _flag(_pct_delta(vph_a, vph_b)),
+            "p90_views": [p90_a, p90_b],
+            "p90_views_delta": _flag(_pct_delta(p90_a, p90_b)),
+            "breakout_rate": [br_a, br_b],
+            "breakout_rate_delta": _flag(_pct_delta(br_a, br_b)),
+        },
+        "cadence": {
+            "median_gap_days": [gap_a, gap_b],
+            "cadence_label": [cad_a.get("cadence_label"), cad_b.get("cadence_label")],
+            "consistency": [cad_a.get("consistency_label"), cad_b.get("consistency_label")],
+            "cadence_delta": _flag(_pct_delta(
+                1/gap_a if gap_a else None,
+                1/gap_b if gap_b else None)),
+        },
+        "format": {
+            "median_duration_min": [dur_a, dur_b],
+            "duration_delta": _flag(_pct_delta(dur_a, dur_b)),
+            "shorts_share": [fmt_a.get("shorts_share"), fmt_b.get("shorts_share")],
+        },
+        "trajectory": {
+            "direction": [traj_a, traj_b],
+            "same": traj_a == traj_b,
+        },
+        "titles": {
+            "shared_words": sorted(shared_words),
+            "only_a": sorted(only_a)[:10],
+            "only_b": sorted(only_b)[:10],
+            "overlap_pct": round(
+                len(shared_words) / max(len(words_a | words_b), 1) * 100, 1),
+        },
+        "tags": {
+            "shared": sorted(shared_tags),
+            "only_a": sorted(only_tags_a)[:10],
+            "only_b": sorted(only_tags_b)[:10],
+            "overlap_pct": round(
+                len(shared_tags) / max(len(tags_a | tags_b), 1) * 100, 1),
+        },
+    }
+
+
+def print_diff(diff):
+    """
+    Render a diff dict to the terminal in a readable, scannable format.
+    Designed to surface the big differences first — not a wall of numbers,
+    but a prioritised view of where the two channels actually diverge.
+    """
+    a_name, b_name = diff["channels"]
+    w = max(len(a_name), len(b_name), 20)
+
+    def row(label, val_a, val_b, note=""):
+        la = f"{val_a}" if val_a is not None else "—"
+        lb = f"{val_b}" if val_b is not None else "—"
+        note_str = f"  ({note})" if note else ""
+        print(f"  {label:<28} {la:>{w}}  vs  {lb:<{w}}{note_str}")
+
+    print()
+    print(f"  {'':28} {a_name:>{w}}  vs  {b_name}")
+    print("  " + "─" * (28 + w*2 + 8))
+
+    print()
+    print("  PERFORMANCE")
+    p = diff["performance"]
+    row("Median views/hr",
+        f"{p['median_vph'][0]:.2f}" if p['median_vph'][0] else None,
+        f"{p['median_vph'][1]:.2f}" if p['median_vph'][1] else None,
+        p["median_vph_delta"])
+    row("Top-10% video views",
+        f"{p['p90_views'][0]:,.0f}" if p['p90_views'][0] else None,
+        f"{p['p90_views'][1]:,.0f}" if p['p90_views'][1] else None,
+        p["p90_views_delta"])
+    row("Breakout rate",
+        f"{p['breakout_rate'][0]:.0%}" if p['breakout_rate'][0] is not None else None,
+        f"{p['breakout_rate'][1]:.0%}" if p['breakout_rate'][1] is not None else None,
+        p["breakout_rate_delta"])
+
+    print()
+    print("  CADENCE")
+    c = diff["cadence"]
+    row("Median gap between uploads",
+        f"{c['median_gap_days'][0]} days" if c['median_gap_days'][0] else None,
+        f"{c['median_gap_days'][1]} days" if c['median_gap_days'][1] else None,
+        c["cadence_label"][0] + " vs " + (c["cadence_label"][1] or "—"))
+    row("Consistency",
+        c["consistency"][0], c["consistency"][1], c["cadence_delta"])
+
+    print()
+    print("  FORMAT")
+    f = diff["format"]
+    row("Median video length",
+        f"{f['median_duration_min'][0]:.0f} min" if f['median_duration_min'][0] else None,
+        f"{f['median_duration_min'][1]:.0f} min" if f['median_duration_min'][1] else None,
+        f["duration_delta"])
+    row("Shorts share",
+        f"{f['shorts_share'][0]:.0%}" if f['shorts_share'][0] is not None else None,
+        f"{f['shorts_share'][1]:.0%}" if f['shorts_share'][1] is not None else None)
+
+    print()
+    print("  TRAJECTORY")
+    t = diff["trajectory"]
+    row("Growth direction", t["direction"][0], t["direction"][1],
+        "same" if t["same"] else "DIFFERENT — worth investigating")
+
+    print()
+    print("  TITLE LANGUAGE")
+    ti = diff["titles"]
+    print(f"    Shared top words ({ti['overlap_pct']:.0f}% overlap): "
+          + (", ".join(ti["shared_words"][:10]) or "none"))
+    print(f"    Only in {a_name[:20]}: " + (", ".join(ti["only_a"]) or "none"))
+    print(f"    Only in {b_name[:20]}: " + (", ".join(ti["only_b"]) or "none"))
+
+    print()
+    print("  TAGS")
+    tg = diff["tags"]
+    print(f"    Shared tags ({tg['overlap_pct']:.0f}% overlap): "
+          + (", ".join(tg["shared"][:8]) or "none"))
+    print(f"    Only in {a_name[:20]}: " + (", ".join(tg["only_a"]) or "none"))
+    print(f"    Only in {b_name[:20]}: " + (", ".join(tg["only_b"]) or "none"))
+    print()
+
+
+def export_diff_report(diff, niche_name=None):
+    """
+    Write the diff to exports/channels/<a_vs_b>/diff.md and diff.json.
+    Returns the dict of paths written.
+    """
+    import json as _json
+    from paths import safe_name
+    from config import EXPORTS_DIR
+    a_name, b_name = diff["channels"]
+    slug = f"{safe_name(a_name)}_vs_{safe_name(b_name)}"
+    out_dir = os.path.join(EXPORTS_DIR, "channels", slug)
+    os.makedirs(out_dir, exist_ok=True)
+
+    json_path = os.path.join(out_dir, "diff.json")
+    md_path = os.path.join(out_dir, "diff.md")
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        _json.dump(diff, f, indent=2)
+
+    def _f(v, fmt="{:.2f}"):
+        return fmt.format(v) if v is not None else "—"
+
+    lines = [
+        f"# {a_name} vs {b_name}",
+        "",
+        "## Performance",
+        f"| | {a_name} | {b_name} | delta |",
+        "|-|---|---|---|",
+    ]
+    p = diff["performance"]
+    lines += [
+        f"| Median views/hr | {_f(p['median_vph'][0])} | {_f(p['median_vph'][1])} | {p['median_vph_delta']} |",
+        f"| Top-10% views | {_f(p['p90_views'][0], '{:,.0f}')} | {_f(p['p90_views'][1], '{:,.0f}')} | {p['p90_views_delta']} |",
+        f"| Breakout rate | {_f(p['breakout_rate'][0], '{:.0%}') if p['breakout_rate'][0] is not None else '—'} | {_f(p['breakout_rate'][1], '{:.0%}') if p['breakout_rate'][1] is not None else '—'} | {p['breakout_rate_delta']} |",
+        "",
+        "## Cadence",
+        f"| | {a_name} | {b_name} |",
+        "|-|---|---|",
+    ]
+    c = diff["cadence"]
+    lines += [
+        f"| Median gap | {_f(c['median_gap_days'][0], '{:.1f}')} days | {_f(c['median_gap_days'][1], '{:.1f}')} days |",
+        f"| Rhythm | {c['cadence_label'][0] or '—'} | {c['cadence_label'][1] or '—'} |",
+        f"| Consistency | {c['consistency'][0] or '—'} | {c['consistency'][1] or '—'} |",
+        "",
+        "## Format",
+        f"| | {a_name} | {b_name} |",
+        "|-|---|---|",
+    ]
+    fm = diff["format"]
+    lines += [
+        f"| Median length | {_f(fm['median_duration_min'][0], '{:.0f}')} min | {_f(fm['median_duration_min'][1], '{:.0f}')} min |",
+        "",
+        "## Title overlap",
+    ]
+    ti = diff["titles"]
+    lines += [
+        f"Shared words ({ti['overlap_pct']:.0f}%): {', '.join(ti['shared_words'][:10]) or 'none'}",
+        f"Only {a_name}: {', '.join(ti['only_a']) or 'none'}",
+        f"Only {b_name}: {', '.join(ti['only_b']) or 'none'}",
+        "",
+        "## Tag overlap",
+    ]
+    tg = diff["tags"]
+    lines += [
+        f"Shared ({tg['overlap_pct']:.0f}%): {', '.join(tg['shared'][:8]) or 'none'}",
+        f"Only {a_name}: {', '.join(tg['only_a']) or 'none'}",
+        f"Only {b_name}: {', '.join(tg['only_b']) or 'none'}",
+    ]
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    return {"json": json_path, "md": md_path}
