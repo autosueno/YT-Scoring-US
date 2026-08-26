@@ -23,19 +23,19 @@ Three pillars: **Demand** (inferred from engagement velocity and consumption), *
 ## The menu
 
 ```
-1) Build / refresh a niche database
-2) Grade a topic against a niche
-3) Discover opportunities
-4) Show an existing niche summary
-5) Grade an existing niche
-6) Thumbnail contact sheet creator
-7) Search intent & Reddit signals
-8) Tear down a single channel
-9) What changed since the last build
+1) Build a niche database
+2) Grade a topic idea
+7) Search intent & keyword signals
+8) Tear down a channel
+13) Compare two channels
+3) Discover breakout opportunities
+4) Niche snapshot
+5) Score a niche against your library
+6) Thumbnail contact sheet
+9) What's moved since last build
 10) Compare all niches side by side
-11) Regenerate stats/insights/metadata from an edited videos.csv
-12) Bulk-slice your whole niche library to one window
-13) Compare two channels side by side
+11) Rebuild from cleaned data
+12) Slice library to a shorter window
 14) Quit
 ```
 
@@ -43,7 +43,7 @@ Three pillars: **Demand** (inferred from engagement velocity and consumption), *
 
 **Find what to make** — You have a niche. You need ideas that are genuinely under-served, not just ideas.
 
-    [1] build → [3] discover → `angles_prompt.md` → paste into an AI → [2] grade the best 2-3
+    [1] build → [3] discover → `breakout_research.md` → paste into Claude → [2] grade the best 2-3
 
 The main loop — everything else supports it. Don't skip the grading step. **An angle that reads beautifully can still sit in a saturated corner**, and 1,000 units is cheap insurance against a week of wasted production.  _13,000 units to build · ~1,000 per topic graded_
 
@@ -53,91 +53,91 @@ The main loop — everything else supports it. Don't skip the grading step. **An
 
 Read the **demand-minus-supply imbalance**, not the headline score. Demand well above supply is the signal. Momentum tells you whether you're early or late.  _~1,000 units · needs a niche built first_
 
+**Decide which niche to enter** — You have several niches built. Which one should you actually commit to?
+
+    [10] compare → `_verdict.html`
+
+Option 10 shows the table. At the end it offers a scored verdict — say yes. It measures **whether a small channel ever wins here**, whether the catalogue compounds, how concentrated the outcomes are, and what a hit is worth. No quota — reads videos.csv from disk.  _Free · reads videos.csv from disk_
+
+**Cross-niche topic research** — You want title ideas that borrow proven vocabulary from adjacent niches, not just your main one.
+
+    [3] discover main niche → `breakout_discovery.md` → repeat for 1-2 crossover niches → paste all 3 + your prompt into Claude
+
+The discovery MD is lean on purpose — **6-8KB per file** so pasting three together doesn't blow the context window. Your standalone prompt does the ranking and title generation; the files just carry the cluster data.  _Free · all three reads are from disk_
+
 **Clone a channel you admire** — One creator is doing exactly what you want to do. What exactly are they doing?
 
-    [8] teardown → `teardown.md` → `thumbnails/` → `transcript_study.md`
+    [8] teardown → `teardown.md` → `thumbnails/`
 
 Cadence, growth trajectory, their own breakouts, title **templates**, tags and thumbnails. Costs ~13 units because a catalogue comes from the uploads playlist (1 unit per 50) rather than search (100 per call). **Format transfers; specific videos don't.**  _~13 units for a 300-video channel_
+
+**Compare two channels directly** — How do two creators in the same space actually differ — who's performing better, and why?
+
+    [13] compare two channels → `diff.md` → `diff.json`
+
+Performance, cadence, format, trajectory, title language overlap and tag overlap — all in one diff. **Costs about 26 units total** (13 per channel catalogue).  _~26 units total_
 
 **Learn how to package it** — Topic decided. Now: how do the winners title and thumbnail it?
 
     [3] discover → `packaging/seo.md` → [6] contact sheet
 
-Twenty thumbnails to study, plus title patterns and tag lift. **Lift is correlational** — it shows what winners did, not what caused the winning.  _Free after the build_
-
-**Learn how to structure it** — Why do the winning videos in this niche actually work?
-
-    [3] discover → `prompts/transcript_study.md` → copy 8 transcripts → paste with the included prompt
-
-Hook type, entry point, pacing, and what none of them do. **Almost nobody does this**, which is part of why it's worth the twenty minutes of copying.  _Free · ~20 min of manual work_
-
-**Find what's coming** — Cover something before the wave reaches YouTube.
-
-    [7] → b → `signals/reddit_signals.md`
-
-Terms climbing fast on Reddit but thin on YouTube. **Treat these as leads to check, not forecasts** — the idea that social chatter reliably precedes YouTube is widely repeated and, as far as I know, never actually demonstrated.  _Free · no YouTube quota_
+Tag lift, title word lift, hashtag patterns. **Lift is correlational** — it shows what winners did, not what caused the winning.  _Free after the build_
 
 **Research keywords** — What do people actually type into the search box?
 
-    [7] → a → preset 2 then preset 5
+    [7] autocomplete → `intent_gaps.md` → paste into Claude for triage
 
-Preset 2 covers the niche broadly, about a minute. Preset 5 is sharper and takes about two: **what people search around the topics already winning**. Separate files, so run both.  _Free · 1–3 min depending on preset_
+Google autocomplete harvest — what gets suggested tells you what's being searched. The intent gap report crosses this against your niche to find **what's searched but not covered**. Matching is lexical, so triage with AI before acting.  _Free · no YouTube quota_
 
-**Compare niches against each other** — How do these markets differ?
+**Find what's coming** — Cover something before the wave reaches YouTube.
 
-    [10] compare → `_compare/compare_365d.md`
+    [7] Reddit signals → `signals/reddit_signals.md`
 
-Every built niche in one table, sorted by spread — the climb from ordinary to good. With five or more niches it derives spread thresholds from **your measured data** instead of the assumed ones. Reads stored metadata, so no quota and no recompute.  _Free · reads what is already on disk_
+Terms climbing on Reddit but thin on YouTube. **Treat these as leads to check, not forecasts** — the idea that social chatter reliably precedes YouTube is widely repeated and never actually demonstrated.  _Free · no YouTube quota_
 
-**Decide which niche to break into** — Of these markets, which one should I actually enter?
+**Compare at a shorter window** — You have 365d builds. You want to see what the last 90 days looks like across all of them at once.
 
-    [10] compare → `_compare/<a>_vs_<b>_365d_verdict.html`
+    [12] slice library to 90d → [10] compare at 90d
 
-Offered at the end of option 10. The table above says how niches DIFFER; this says which to enter, which needs facts metadata cannot hold — so it re-reads `videos.csv`. Measures **whether a small channel ever wins here**, whether the floor is hobbyists or failed professionals, whether videos keep earning after six months, how long a winning video runs, and what a hit is worth. Ad rates come from `rpm_rates.csv` (edit it in Excel); the ranking runs at the low, mid and high end of each band and tells you if the answer flips. Still no quota — seconds per niche instead of instant.  _Free · reads videos.csv from disk_
+Slicing is free — it re-filters the data you already paid for. Option 12 does all your niches in one go. Then option 10 will ask which window you want — **type 90** (not 90d) and it compares the slices.  _Free · zero API calls_
 
 **See what actually moved** — Is this niche going anywhere since you last looked?
 
-    [9] compare → `trends/since_last_build.md`
+    [9] trends → `trends/since_last_build.md`
 
-The only **measured** demand figure the engine produces. Everywhere else `views_per_hour` is a lifetime average, so a video that did 400k views in its first week and nothing since reports a healthy number forever. Two snapshots give actual views gained — which separates **still being watched** from **finished months ago**. Needs two builds of the same niche, days apart.  _Free · reads the history/ folder_
+The only **measured** demand figure the engine produces. Everywhere else views_per_hour is a lifetime average — two snapshots give actual views gained, separating **still being watched** from **finished months ago**. Needs two builds of the same niche, days apart.  _Free · reads the history/ folder_
 
 **See which themes actually last** — Is this format durable, or was it a moment?
 
     [3] discover → `breakouts/by_era.md`
 
-Breakouts split into 0-90d / 90-180d / 180-365d, each ranked against its own contemporaries. A theme appearing in all three eras is a **format**; one appearing only in the newest is a news cycle. Fixes an age bias where recent videos took 43 of the top 50 and the single biggest video in the dataset was invisible.  _Free · slices the build you already have_
+Breakouts split into 0-90d / 90-180d / 180-365d, each ranked against its own contemporaries. A theme appearing in all three eras is a **format**; one appearing only in the newest is a news cycle.  _Free · slices the build you already have_
 
-**Mine the Shorts you filtered out** — A third of every build is Shorts. What were they about?
-
-    [3] discover → `shorts/shorts.md`
-
-Subjects busy in short form but thin in long-form — attention exists, nobody made the full version. **Leads, not findings**: a Short's views come from the feed, not from search, so short-form attention doesn't prove anyone would search for a ten-minute version. Written automatically; costs nothing extra.  _Free · data was already collected_
-
-**Find a repeatable format** — A series, not a one-off. At a small channel size this matters more than any single video decision here.
+**Find a repeatable format** — A series, not a one-off.
 
     [3] discover → `breakouts/breakout_clusters.csv` → sort by unique_channels
 
-A cluster where seven or more separate channels succeeded is a **format**, not a fluke. That's the difference between one good video and a content engine — your second video benefits from the first in a way one-off topics never allow.  _Free after the build_
+A cluster where seven or more separate channels succeeded is a **format**, not a fluke. That's the difference between one good video and a content engine.  _Free after the build_
 
 ## Files I'll upload, and what I want from each
 
-### `angles_prompt.md`
+### `breakout_research.md`
 
 Follow the prompt embedded in it. Generate **15 angles, not topics** — each with the angle, the actual hook line, the entry point, why it's under-served, and the format match.
+
+### `breakout_discovery.md (one or more niches)`
+
+These are data-only files for cross-niche work. Apply the filter step in each file first, then use my standalone prompt for ranking and title generation across all of them.
 
 ### `transcript_study.md + pasted transcripts`
 
 Analyse **structure**: hook type, entry point, pacing, what recurs, and critically **what none of them do**. Say which patterns are transferable versus idiosyncratic.
 
-### `curation_prompt.md`
-
-Pick exactly **20 video IDs** whose thumbnails are worth studying. Prefer small-channel breakouts and visual variety. Return IDs only, one per line, no commentary.
-
 ### `_contact_sheet.jpg`
 
 Identify visual patterns, focusing on what **small channels** did differently from incumbents. If they all look identical, say so — that's a real finding about the niche.
 
-### `intent_gaps.md / cluster_intent.md`
+### `intent_gaps.md`
 
 **Triage.** The matching is lexical, not semantic. Use your own knowledge to separate genuine gaps from wording mismatches, then group the real ones into intent clusters.
 
@@ -148,6 +148,10 @@ Separate real emerging topics from tickers and subreddit noise. For genuine ones
 ### `teardown.md (channel)`
 
 Tell me whether their success is a **format I could adopt** or a **personality I can't**. Focus on the title templates and cadence. Remember you cannot see CTR or retention.
+
+### `diff.md (channel comparison)`
+
+Tell me what the meaningful differences are between these two channels, and what a newcomer could learn from each.
 
 ### `breakout.md, seo.md, grade reports`
 
@@ -168,8 +172,6 @@ General analysis. Lead with what's actionable for a sub-100-subscriber channel.
 **outlier_ratio is unstable at low view counts.** A channel averaging 15 views that hits 201 scores 13.8x. Breakout tables apply a minimum-view floor for this reason; entries below 5,000 views are flagged low_evidence elsewhere.
 
 **Timing is one of the weakest levers for a small channel.** The mechanism that makes publish time matter — notify subscribers, spike early velocity, trigger amplification — barely applies without an audience. Use it to break ties, not to plan strategy.
-
-**Constants are reasonable but not validated.** Weights and thresholds were chosen sensibly, not derived from evidence that high-scoring topics actually outperform. Treat scores as structured opinion, not measurement.
 
 ## How I want you to behave
 

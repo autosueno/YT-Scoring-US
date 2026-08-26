@@ -42,11 +42,12 @@ Measured from the data: entry access, floor composition, durability,
 production effort, ceiling, concentration.
 
 Declared, because YouTube's API cannot see it: RPM. It lives in
-rpm_rates.csv next to main.py, editable in Excel, and it can swing the
-answer several fold. Rather than pretend to one number, every ranking is
-computed three times — at the low, mid and high end of each niche's
-band. A ranking that survives all three is a finding. One that flips is
-reported as a flip, not resolved by picking a favourite.
+rpm_rates.csv next to main.py, editable in Excel. It used to drive
+part of the composite score — every ranking was computed three times
+(at the low, mid and high end of each niche's RPM band) and a flip
+was reported as such. That mechanism was removed: RPM is now shown
+alongside the result as information only, not as a scoring input.
+See score_profile()'s docstring for the full reasoning.
 
 THE SCORE ANCHORS ARE PROVISIONAL
 ---------------------------------
@@ -1319,9 +1320,14 @@ def export_verdict(niche_keys, window=None, exports_root=None, mismatch=None):
     for k, p in res["profiles"].items():
         row = dict(p)
         row["rpm_key"] = res["rpms"][k].get("niche_key")
-        for lvl in ("low", "mid", "high"):
-            for dim, val in res["scored"][k][lvl].items():
-                row[f"{dim}_{lvl}"] = val
+        # CRASH BUG FIXED: used to iterate `for lvl in ("low","mid","high")`
+        # and access `res["scored"][k][lvl]` — the old three-level structure
+        # from when RPM drove the composite. res["scored"][k] is now a flat
+        # dict (one score per niche, at mid-RPM only), so those keys don't
+        # exist and every verdict export crashed with a KeyError. Flattened
+        # to the current single-level structure.
+        for dim, val in res["scored"][k].items():
+            row[f"{dim}"] = val
         rows.append(row)
     csv_path = os.path.join(out_dir, f"{stem}{suffix}_verdict.csv")
     pd.DataFrame(rows).to_csv(csv_path, index=False)

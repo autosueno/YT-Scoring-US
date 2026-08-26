@@ -26,21 +26,33 @@ py main.py
 
 ## Menu
 
+**BUILD — uses your API quota**
+
 | | action | cost |
 |---|---|---|
-| **1** | Build / refresh a niche database | ~13,000 units |
-| **2** | Grade a topic against a niche | ~1,000 units |
-| **3** | Discover opportunities | free |
-| **4** | Show an existing niche summary | free |
-| **5** | Grade an existing niche | free |
-| **6** | Thumbnail contact sheet creator | free |
-| **7** | Search intent & Reddit signals | free |
-| **8** | Tear down a single channel | free |
-| **9** | What changed since the last build | free |
+| **1** | Build a niche database | ~13,000 units |
+| **2** | Grade a topic idea | ~1,000 units |
+| **7** | Search intent & keyword signals | free |
+| **8** | Tear down a channel | ~1,000 units |
+| **13** | Compare two channels | ~1,000 units |
+
+**EXPLORE — reads what you already have**
+
+| | action | cost |
+|---|---|---|
+| **3** | Discover breakout opportunities | free |
+| **4** | Niche snapshot | free |
+| **5** | Score a niche against your library | free |
+| **6** | Thumbnail contact sheet | free |
+| **9** | What's moved since last build | free |
 | **10** | Compare all niches side by side | free |
-| **11** | Regenerate stats/insights/metadata from an edited videos.csv | free |
-| **12** | Bulk-slice your whole niche library to one window | free |
-| **13** | Compare two channels side by side | — |
+
+**MANAGE — maintain your data**
+
+| | action | cost |
+|---|---|---|
+| **11** | Rebuild from cleaned data | free |
+| **12** | Slice library to a shorter window | free |
 | **14** | Quit | — |
 
 ## Output layout
@@ -49,17 +61,15 @@ py main.py
 datasets/<niche>/          collected data + baseline
 exports/<niche>/
     market/                dashboard
-    breakouts/             ranked videos + clusters
+    breakouts/             ranked videos + clusters + research/discovery MDs
     packaging/             SEO analysis, thumbnails
     timing/                publishing calendars
     prompts/               files to paste into an AI
     signals/               autocomplete + Reddit
-exports/_channels/<name>/  channel teardowns
+exports/_channels/<name>/  channel teardowns + diffs
 exports/_compare/          niche-vs-niche verdicts
 history/<niche>/<date>/    archived previous builds
 ```
-
-Every file carries the name of what it describes — `ancient_history_365d_statistics.csv`, not `statistics.csv`. The folder tree already separates subjects, but the folder does not travel with the file: attach two niches' exports to one message and the second overwrites the first, and Excel refuses to open two workbooks of the same name at all. The window is included because a 365d and a 90d build of one niche collide just as badly as two different niches. Datasets built before this change keep loading under their old names and are renamed once at startup.
 
 ## Modules (29)
 
@@ -76,12 +86,12 @@ Every file carries the name of what it describes — `ancient_history_365d_stati
 
 ## Known limits
 
-- **Compare two niches head to head** — Option 5 grades a niche against its own baseline, which forces demand to about 64 and supply to exactly 50. That's arithmetic, not information. Cross-niche grading exists in the code but isn't wired into the menu — for now, run option 3 on each and compare cluster strength by hand.
 - **Tell you whether *your* video will work** — It never sees your channel. Every number describes the market, not your odds in it.
-- **Judge whether a video is on-topic** — There's no topical relevance filter, deliberately. Occasional off-topic leaks are the price of not silently dropping things that only look irrelevant.
+- **Judge whether a video is on-topic** — There's no topical relevance filter, deliberately. Occasional off-topic leaks are the price of not silently dropping things that only look irrelevant. Run the cleaning workflow on any niche before treating its numbers as calibration data.
 - **Measure current demand from one build** — A single snapshot cannot separate a video still climbing from one that stopped a year ago — views_per_hour is a lifetime average. Option 9 fixes this, but only once you have two builds of the same niche to compare.
 - **Measure search demand in the scoring** — Scores are built from how existing videos performed. A topic nobody has covered looks identical to a topic nobody wants. Option 7 gets close from the outside, but it doesn't feed the scoring yet.
 - **See why a video worked** — Click-through rate, average view duration, retention and traffic sources are private analytics. No public API exposes them at any price, for any channel. Everything here is inference from outside.
+- **Validate the Reliability score** — Reliability measures outcome concentration — how narrow the gap between a decent and a great video is. That's a reasonable proxy for predictability, but it hasn't been checked against real channel outcomes. Treat it as a structured heuristic until you have your own data to compare against.
 
 ## Regenerating this file
 
@@ -91,4 +101,4 @@ Every file carries the name of what it describes — `ancient_history_365d_stati
 py main.py --docs
 ```
 
-Edit `docs.py`, not the generated files. They went stale three times when hand-maintained — the workflow prompt was still telling a chat model the menu ended at option 8 after a ninth was added.
+Edit `docs.py`, not the generated files.

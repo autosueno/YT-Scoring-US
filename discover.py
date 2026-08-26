@@ -587,17 +587,14 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "breakouts")
     stem = os.path.join(out_dir, _named(niche_name, "breakout"))
     paths = {
-        "json":         stem + ".json",
-        "csv":          stem + ".csv",
-        "md":           stem + ".md",
-        "clusters_csv": stem + "_clusters.csv",
+        "json":           stem + ".json",
+        "csv":            stem + ".csv",
+        "research_md":    stem + "_research.md",
+        "discovery_md":   stem + "_discovery.md",
+        "clusters_csv":   stem + "_clusters.csv",
     }
 
     slim.to_csv(paths["csv"], index=False)
-    # Full set, not the markdown-curated subset — a CSV is meant to be
-    # filtered and sorted externally (Excel, a spreadsheet), so there is
-    # no readability reason to silently drop 448 real clusters here the
-    # way there is for the markdown reading list.
     if all_clusters:
         pd.DataFrame([{k: v for k, v in c.items() if k != "top_titles"}
                       for c in all_clusters]).to_csv(paths["clusters_csv"], index=False)
@@ -621,20 +618,22 @@ def export_breakouts(df: pd.DataFrame, baseline: Baseline, niche_name: str) -> d
             f"(evidence = log2(channels+1)/log2({CLUSTER_EVIDENCE_REFERENCE}+1)) — "
             "rewards repeated INDEPENDENT success over single outliers"
         ),
-        # Full set here too — the JSON is a data file, not a reading list.
         "clusters": all_clusters,
         "videos": json.loads(slim.to_json(orient="records")),
     }
     with open(paths["json"], "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, default=str)
 
-    with open(paths["md"], "w", encoding="utf-8") as f:
-        f.write(_markdown_report(slim, clusters, niche_name, cov_note))
+    with open(paths["research_md"], "w", encoding="utf-8") as f:
+        f.write(_research_md(slim, clusters, niche_name, cov_note))
+
+    with open(paths["discovery_md"], "w", encoding="utf-8") as f:
+        f.write(_discovery_md(clusters, niche_name, cov_note))
 
     return paths
 
 
-def _markdown_report(slim, clusters, niche_name, cov_note=None) -> str:
+def _research_md(slim, clusters, niche_name, cov_note=None) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     n = len(slim)
 
@@ -648,22 +647,36 @@ def _markdown_report(slim, clusters, niche_name, cov_note=None) -> str:
     out.append(f"""
 > **Analysis prompt — paste this file into Claude or ChatGPT:**
 >
-> Below are topic clusters the engine detected in {niche_name}, plus the
-> full ranked video list. Clusters are already grouped and scored by the
-> engine — repeated success across multiple independent channels.
-> 1. For each top cluster, explain *why* it is trending right now.
+> This is a single-niche breakout cluster report for **{niche_name}**.
+>
+> **Step 0 — Filter first.**
+> Look at the `videos` column across all clusters below. Find the 75th
+> percentile of that distribution. Drop any cluster below that number.
+> State the cutoff you used and how many clusters survived. Work only
+> with the surviving clusters for everything that follows.
+>
+> Then, for the surviving clusters:
+>
+> 1. For each top cluster, explain *why* it is resonating right now —
+>    what real-world context, search behaviour, or audience need is
+>    driving it. Be specific; avoid generic observations.
+>
 > 2. Suggest adjacent video opportunities each cluster implies but that
->    do not yet appear in the data (the underserved follow-up questions).
+>    do not yet appear in the data — the underserved follow-up
+>    questions, the angles the data shows demand for but no one has
+>    fully covered yet.
+>
 > 3. Flag clusters where small creators are winning (high
->    small_creator_share) — those prove the topic carries the video.
-> 4. Recommend additional seed search queries these clusters suggest.
-> 5. Note any clusters that look like noise rather than a real theme.
-> 6. This file answers WHAT to make. A companion file,
->    `<niche>_seo.md`, answers HOW to package it — it already computes
->    tag/title/hashtag lift, structural patterns and per-cluster examples,
->    so don't re-derive packaging advice by eyeballing the columns below.
->    Paste that file too if packaging matters for this question.
+>    `small_creator_share`) — these prove the topic carries the video
+>    on its own merits, not on the back of an established audience.
+>    Explain what specifically makes the topic accessible to newcomers.
+>
+> 6. This file answers **WHAT** to make. A companion file,
+>    `{niche_name}_seo.md`, answers **HOW** to package it — tag lift,
+>    title patterns, hashtag analysis, structural packaging by cluster.
+>    Paste that file too if packaging decisions matter for this session.
 """)
+
 
     if clusters:
         clusters, has_search = attach_search_demand(clusters, niche_name)
@@ -809,5 +822,69 @@ def _markdown_report(slim, clusters, niche_name, cov_note=None) -> str:
                 v = v[:89] + "…"
             cells.append(v)
         out.append("| " + " | ".join(cells) + " |")
+
+    return "\n".join(out) + "\n"
+
+
+def _discovery_md(clusters, niche_name, cov_note=None) -> str:
+    """
+    Lean cross-niche data file — cluster table + example titles only.
+    No tier video tables, no full video dump, no deep analysis prompt.
+
+    Designed to be pasted alongside other niches' discovery files into
+    a single conversation, with the user's own standalone cross-niche
+    prompt on top. The only instruction is the filter step, which
+    operates on this file's data alone and should run before any
+    cross-niche ranking or title generation.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    n_clusters = len(clusters)
+
+    out = [
+        f"# {niche_name} — Breakout Clusters · {ts}",
+        f"{n_clusters} clusters shown (top {min(n_clusters, CLUSTER_MAX)} "
+        f"by evidence-weighted breakout score)\n",
+    ]
+
+    if cov_note:
+        quoted = "\n".join(f"> {line}" for line in cov_note.split("\n"))
+        out.append(f"\n> ⚠️ **Topic coverage note.**\n{quoted}\n")
+
+    out.append("""\
+> **Filter step — run this before anything else:**
+> Look at the `videos` column in the cluster table below.
+> Find the 75th percentile of that distribution.
+> Drop any cluster below that number.
+> State the cutoff and how many clusters survived.
+> Use only the surviving clusters in all subsequent steps.
+""")
+
+    if clusters:
+        clusters, has_search = attach_search_demand(clusters, niche_name)
+        out.append("## Clusters\n")
+        head = ("| # | topic | cluster_score | avg_breakout | "
+                "small_creator_share | videos | unique_channels |")
+        rule = "|---|---|---|---|---|---|---|"
+        if has_search:
+            head = head[:-1] + " search |"
+            rule = rule + "---|"
+        out.append(head)
+        out.append(rule)
+        for i, c in enumerate(clusters, 1):
+            scs = ("" if c["small_creator_share"] is None
+                   else f"{c['small_creator_share']:.0%}")
+            row = (f"| {i} | {c['topic']} | {c['cluster_score']} | "
+                   f"{c['avg_breakout']} | {scs} | {c['videos']} | "
+                   f"{c['unique_channels']} |")
+            if has_search:
+                row += f" {c.get('search_level', '—')} |"
+            out.append(row)
+
+        out.append("\n## Example titles per cluster\n")
+        for i, c in enumerate(clusters[:15], 1):
+            out.append(f"**{i}. {c['topic']}**")
+            for t in c["top_titles"]:
+                out.append(f"  - {str(t)[:110]}")
+            out.append("")
 
     return "\n".join(out) + "\n"
