@@ -40,6 +40,7 @@ except ImportError:
 
 import collector
 import discover
+import digest
 import seo
 import dashboard
 import angles
@@ -796,6 +797,106 @@ def _dispatch_bulk_slice():
                       f"{type(e).__name__}: {e})")
 
 
+def _dispatch_digest():
+    """
+    Option 15 — cross-niche cluster digest.
+
+    Free: reads breakout JSON already written by option 6, no fresh API
+    calls. Deliberately does NOT ask for a single window first the way
+    option 11 (compare) does — the workflow this was built for combines
+    the SAME niche at multiple windows on purpose (e.g. finance@30d for
+    what's happening now, finance@90d for the quarter), so every built
+    niche@window with a breakout export is offered together, across
+    every niche.
+
+    Flow: list every eligible niche@window, let the user pick which
+    ones go into the pool, then which one of those is the anchor niche
+    (every generated title must be usable on the anchor channel, even
+    when its vocabulary comes from a crossover niche's cluster).
+    """
+    import compare as _cmp
+    import paths as _p
+
+    all_niches = _cmp.list_all_niches()
+    if not all_niches:
+        print("\n  No niches built yet. Option 1 builds one.")
+        return
+
+    # Only offer keys that actually have a breakout export — a built
+    # dataset that never had option 6 run on it has nothing here to
+    # read. Reported explicitly rather than silently left off, in case
+    # that's a surprise (e.g. a niche you thought you'd already run
+    # discovery on).
+    eligible, skipped = [], []
+    for key, _meta in sorted(all_niches):
+        clusters, _ = digest._load_niche_clusters(key)
+        (eligible if clusters is not None else skipped).append(key)
+
+    if len(eligible) < 2:
+        print(f"\n  Only {len(eligible)} niche@window build(s) have a "
+              f"breakout export — need at least 2 to pool.")
+        if skipped:
+            print(f"  Run option 6 (discover breakout opportunities) on: "
+                  f"{', '.join(skipped)}")
+        return
+
+    print(f"\n  Eligible for the digest ({len(eligible)}):\n")
+    for i, key in enumerate(eligible, 1):
+        base, win = _p.split_window(key)
+        print(f"    {i:>2}) {base:<28} {win or '—':>6}")
+    if skipped:
+        print(f"\n  (skipped — no breakout export yet: {', '.join(skipped)})")
+
+    example = ",".join(str(i) for i in range(1, min(len(eligible), 4) + 1))
+    raw = input(f"\n  Include which in the pool? (e.g. {example} — Enter "
+               f"for all {len(eligible)}): ").strip()
+    if raw:
+        idx = [int(x) - 1 for x in raw.replace(" ", ",").split(",")
+              if x.strip().isdigit()]
+        chosen = [eligible[i] for i in idx if 0 <= i < len(eligible)]
+    else:
+        chosen = eligible
+
+    if len(chosen) < 2:
+        print("  Need at least 2 to pool — cancelled.")
+        return
+
+    print(f"\n  Selected: {', '.join(chosen)}")
+    anchor_pick = input(f"\n  Which is the ANCHOR niche? (1-{len(chosen)}, "
+                       f"Enter for #1 — {chosen[0]}): ").strip()
+    if anchor_pick.isdigit() and 1 <= int(anchor_pick) <= len(chosen):
+        anchor_key = chosen[int(anchor_pick) - 1]
+    else:
+        anchor_key = chosen[0]
+    others = [k for k in chosen if k != anchor_key]
+
+    result = digest.build_digest(anchor_key, others)
+
+    print(f"\n  Filter (per niche/window, 75th percentile of that file's "
+          f"own cluster videos count):")
+    for key, s in result["filter_stats"].items():
+        print(f"    {key:<28} {s['total']:>4} clusters → cutoff "
+              f"{s['cutoff']:>6.1f} → {s['survivors']:>4} survive")
+    if result["missing"]:
+        print(f"  ⚠️  No export found, skipped: {', '.join(result['missing'])}")
+
+    print(f"\n  Pooled {result['pool_size']} survivors across "
+          f"{len(result['filter_stats'])} file(s). Top "
+          f"{len(result['top'])} by attention score "
+          f"(avg_breakout × small_creator_share):")
+    for key, count in result["split_counts"].items():
+        print(f"    {count:>3} from {key}")
+
+    try:
+        paths_out = digest.export_digest(result)
+        print(f"\n  Ranked pool (CSV) → {paths_out['csv']}")
+        print(f"  Paste-ready AI prompt (MD) → {paths_out['md']}")
+        print("     ↳ open the MD file, select all, paste into Claude "
+              "or ChatGPT.")
+    except Exception as e:
+        print(f"  (export failed: {type(e).__name__}: {e})")
+
+
 
 
 def _pick_niche(prompt="Niche display name: "):
@@ -1083,8 +1184,13 @@ def _menu():
     print("  ─────────────────────────────────────────────────────")
     print(" 12) Rebuild from cleaned data")
     print(" 13) Slice library to a shorter window")
+    print()
+    print("  SYNTHESIZE — cross-niche AI prompts")
+    print("  ─────────────────────────────────────────────────────")
+    print(" 15) Cross-niche cluster digest")
+    print()
     print(" 14) Quit")
-    return input("\nChoose [1-14]: ").strip()
+    return input("\nChoose [1-15]: ").strip()
 
 
 def _dispatch(choice):
@@ -1226,6 +1332,9 @@ def _dispatch(choice):
 
     elif choice == "13":
         _dispatch_bulk_slice()
+
+    elif choice == "15":
+        _dispatch_digest()
 
     elif choice == "14":
         return "quit"

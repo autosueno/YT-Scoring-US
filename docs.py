@@ -66,6 +66,11 @@ MENU_GROUPS = [
          "Turn 365d builds into 30d/90d slices, free, from data you have."),
         ("14", "Quit",                             None, ""),
     ]),
+    ("SYNTHESIZE — cross-niche AI prompts", "free", [
+        ("15", "Cross-niche cluster digest",       "free",
+         "Pool breakout clusters from multiple niches/windows, filter + "
+         "rank them, and write a paste-ready title-generation prompt."),
+    ]),
 ]
 
 # Flat list for backwards-compat with code that iterates MENU
@@ -166,6 +171,16 @@ MODULE_DESCRIPTIONS = {
                 "of a niche's key numbers formatted for quick review.",
         "example": "After running option 6, open the market/ folder for the "
                    "dashboard.",
+    },
+    "digest": {
+        "what": "Pools breakout clusters from multiple niches and windows "
+                "(e.g. finance@30d + finance@90d + two crossover niches) "
+                "into one filtered, ranked list, and writes a paste-ready "
+                "title-generation prompt from it.",
+        "example": "Option 15: 'Give me a ranked table of the strongest "
+                   "topics across my finance, psychology, and investing "
+                   "niches, filtered fairly across windows' — digest does "
+                   "the merge and writes the AI prompt.",
     },
     "discover": {
         "what": "The main analysis engine. Scores every video as a breakout "
