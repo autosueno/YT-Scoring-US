@@ -32,27 +32,27 @@ py main.py
 |---|---|---|
 | **1** | Build a niche database | ~13,000 units |
 | **2** | Grade a topic idea | ~1,000 units |
-| **7** | Search intent & keyword signals | free |
-| **8** | Tear down a channel | ~1,000 units |
-| **13** | Compare two channels | ~1,000 units |
+| **3** | Search intent & keyword signals | free |
+| **4** | Tear down a channel | ~1,000 units |
+| **5** | Compare two channels | ~1,000 units |
 
 **EXPLORE — reads what you already have**
 
 | | action | cost |
 |---|---|---|
-| **3** | Discover breakout opportunities | free |
-| **4** | Niche snapshot | free |
-| **5** | Score a niche against your library | free |
-| **6** | Thumbnail contact sheet | free |
-| **9** | What's moved since last build | free |
-| **10** | Compare all niches side by side | free |
+| **6** | Discover breakout opportunities | free |
+| **7** | Niche snapshot | free |
+| **8** | Score a niche against your library | free |
+| **9** | Thumbnail contact sheet | free |
+| **10** | What's moved since last build | free |
+| **11** | Compare all niches side by side | free |
 
 **MANAGE — maintain your data**
 
 | | action | cost |
 |---|---|---|
-| **11** | Rebuild from cleaned data | free |
-| **12** | Slice library to a shorter window | free |
+| **12** | Rebuild from cleaned data | free |
+| **13** | Slice library to a shorter window | free |
 | **14** | Quit | — |
 
 ## Output layout
@@ -88,8 +88,8 @@ history/<niche>/<date>/    archived previous builds
 
 - **Tell you whether *your* video will work** — It never sees your channel. Every number describes the market, not your odds in it.
 - **Judge whether a video is on-topic** — There's no topical relevance filter, deliberately. Occasional off-topic leaks are the price of not silently dropping things that only look irrelevant. Run the cleaning workflow on any niche before treating its numbers as calibration data.
-- **Measure current demand from one build** — A single snapshot cannot separate a video still climbing from one that stopped a year ago — views_per_hour is a lifetime average. Option 9 fixes this, but only once you have two builds of the same niche to compare.
-- **Measure search demand in the scoring** — Scores are built from how existing videos performed. A topic nobody has covered looks identical to a topic nobody wants. Option 7 gets close from the outside, but it doesn't feed the scoring yet.
+- **Measure current demand from one build** — A single snapshot cannot separate a video still climbing from one that stopped a year ago — views_per_hour is a lifetime average. Option 10 fixes this, but only once you have two builds of the same niche to compare.
+- **Measure search demand in the scoring** — Scores are built from how existing videos performed. A topic nobody has covered looks identical to a topic nobody wants. Option 3 gets close from the outside, but it doesn't feed the scoring yet.
 - **See why a video worked** — Click-through rate, average view duration, retention and traffic sources are private analytics. No public API exposes them at any price, for any channel. Everything here is inference from outside.
 - **Validate the Reliability score** — Reliability measures outcome concentration — how narrow the gap between a decent and a great video is. That's a reasonable proxy for predictability, but it hasn't been checked against real channel outcomes. Treat it as a structured heuristic until you have your own data to compare against.
 

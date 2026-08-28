@@ -479,7 +479,7 @@ def suggest_seeds(niche_name, max_clusters=SIGNALS_MAX_SEEDS):
        specific set of terms ("personal finance, investing, stock
        market, ..."), stored in the dataset metadata. Those terms
        DEFINE the niche, so they are the correct starting point.
-       Option 7 previously defaulted to the niche DISPLAY NAME instead
+       Option 3 previously defaulted to the niche DISPLAY NAME instead
        — for a niche called "finance" built from five specific seeds,
        that threw away four fifths of the definition.
 

@@ -755,7 +755,7 @@ def export_timing_report(df, niche_name, out_dir_override=None) -> dict:
     one. build_timing_report() computes the full analysis (by_hour,
     by_weekday, heatmap, best/worst slots, event-driven scoring, bootstrap
     confidence intervals — everything render_timing_markdown formats),
-    but the only caller anywhere in the codebase (option 3's discovery
+    but the only caller anywhere in the codebase (option 6's discovery
     flow) only ever used ONE field off the result (event_driven), to feed
     the calendar export, and discarded the rest. The full computation ran
     every time and was thrown away every time. This is the missing save

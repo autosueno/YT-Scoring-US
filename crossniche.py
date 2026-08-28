@@ -3,7 +3,7 @@ crossniche.py — grade a niche against OTHER niches, not against itself.
 
 THE PROBLEM THIS EXISTS TO FIX
 ------------------------------
-Option 5 grades a niche against a baseline built from that same niche.
+Option 8 grades a niche against a baseline built from that same niche.
 The result is arithmetic, not measurement:
 
     a niche's own median sits, by definition, at the 50th percentile

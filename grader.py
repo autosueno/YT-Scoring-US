@@ -148,7 +148,7 @@ def grade_niche(df, baseline: Baseline, niche: str,
     Evaluate a niche against a baseline.
 
     WHAT THIS IS GRADING AGAINST: when the baseline was built FROM this
-    same niche (the normal case — option 5), you are comparing the niche
+    same niche (the normal case — option 8), you are comparing the niche
     to itself. That is not perfectly neutral, and the asymmetry between
     pillars is worth knowing rather than discovering by staring at
     unexplained numbers:

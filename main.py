@@ -237,6 +237,57 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
 
     # 4. Report
     report.print_grade(result)
+
+    # 4b. A grade alone is close to unreadable ("B+, so what do I DO with
+    # that?"). Surface the closest real breakout videos covering this
+    # topic, the niche's own spread band ("what does a decent video earn
+    # vs a hit here"), and a one-line recommendation — all computable
+    # from data already in memory, so this costs nothing extra.
+    #
+    # scored/clusters computed ONCE here at full CLUSTER_MAX and reused
+    # by the SEO report in step 7 below, rather than recomputing the same
+    # clustering pass a second time for no reason.
+    scored, clusters = None, None
+    try:
+        scored = discover.score_breakouts(topic_df, baseline)
+        clusters = discover.build_clusters(scored, max_clusters=config.CLUSTER_MAX)  # curated: SEO angle list is for reading
+        if clusters:
+            best_cluster = clusters[0]
+            print(f"\n  Closest real videos covering this topic "
+                  f"(cluster: \"{best_cluster['topic']}\"):")
+            for t in best_cluster.get("top_titles", [])[:3]:
+                print(f"    • {t}")
+        else:
+            print("\n  No clustered exemplars found for this topic yet — "
+                  "the sample may be too thin or too scattered to cluster.")
+
+        import calibration as _cal
+        p90 = float(topic_df["view_count"].quantile(0.90))
+        p75 = float(topic_df["view_count"].quantile(0.75))
+        spread = _cal.describe(p90, p75, window_days=niche_lookback)
+        if spread.get("spread_text"):
+            print(f"\n  In this topic's own data: {spread['spread_text']}")
+        if spread.get("decent_pay"):
+            print(f"  A decent video here: ~{spread['decent_pay']:,.0f} views "
+                  f"(better than 75% of what's been made on this topic)")
+
+        # One-line recommendation, built from the imbalance already in
+        # `result` — not a new score.
+        imbalance = result.get("opportunity", {}).get("imbalance", 0)
+        if imbalance >= 15:
+            verdict_line = "PROCEED — demand clearly outpaces supply here."
+        elif imbalance >= 0:
+            verdict_line = ("MODIFY ANGLE — demand and supply are close; "
+                           "a generic take on this topic will struggle to "
+                           "stand out.")
+        else:
+            verdict_line = ("AVOID OR SHARPEN — supply already outpaces "
+                           "demand; only a genuinely different angle is "
+                           "worth the production time here.")
+        print(f"\n  ► {verdict_line}")
+    except Exception as e:
+        print(f"  (closest-videos context skipped: {type(e).__name__}: {e})")
+
     report.print_quota(tracker)
 
     # 5. Export
@@ -260,8 +311,12 @@ def grade_topic_against_niche(api_key, niche_name, topic, query=None,
     try:
         import paths as _paths
         topic_out = _paths.topic_export_dir(config.EXPORTS_DIR, topic, "packaging")
-        scored = discover.score_breakouts(topic_df, baseline)
-        clusters = discover.build_clusters(scored, max_clusters=config.CLUSTER_MAX)  # curated: SEO angle list is for reading
+        # Reuse the scoring/clustering from step 4b above rather than
+        # recomputing it — same topic_df, same baseline, same answer.
+        if scored is None:
+            scored = discover.score_breakouts(topic_df, baseline)
+        if clusters is None:
+            clusters = discover.build_clusters(scored, max_clusters=config.CLUSTER_MAX)  # curated: SEO angle list is for reading
         # SEO report analyses what's working; tag generator hands you a
         # ready-to-use list. Different jobs — the first is diagnostic,
         # the second is the thing you paste into the upload form.
@@ -617,12 +672,12 @@ def _build_from_slice(niche_base, requested_days):
 
 def _dispatch_bulk_slice():
     """
-    Option 12 — slice EVERY built niche (or a chosen subset) down to
+    Option 13 — slice EVERY built niche (or a chosen subset) down to
     one target window at once, all for free: this only re-filters
     already-collected videos by age, so it costs zero API quota
     regardless of how many niches it touches.
 
-    Built for exactly the situation option 10 (compare) runs into
+    Built for exactly the situation option 11 (compare) runs into
     constantly: a real cross-niche comparison needs every niche at the
     SAME window, and slicing one at a time through option 1 makes that
     a lot of repetitive manual work for a library of any real size.
@@ -727,7 +782,7 @@ def _dispatch_bulk_slice():
             print(f"    {base}")
     print()
 
-    if sliced and input("  Run discovery (option 3) on all newly sliced "
+    if sliced and input("  Run discovery (option 6) on all newly sliced "
                         "niches now? [y/N]: ").strip().lower() == "y":
         print(f"\n  Running discovery across {len(sliced)} niche(s) — "
               f"no API cost, but this takes real compute time per niche.")
@@ -796,7 +851,7 @@ def _require_database(niche_name) -> bool:
     else:
         print("  You haven't built any niche databases yet.")
     print("  Run option 1 (Build / refresh a niche database) first — "
-          "options 2-5 all read data that option 1 creates.\n")
+          "options 2, 6, 7, and 8 all read data that option 1 creates.\n")
     return False
 
 
@@ -834,6 +889,46 @@ def _available_niches():
         d for d in os.listdir(DATASETS_DIR)
         if _built_dataset_exists(os.path.join(DATASETS_DIR, d))
     )
+
+
+def _run_contamination_check(niche_name, df):
+    """
+    Auto-run at the end of option 1 (build a niche database), right when
+    the build finishes and quota for THIS niche is still fresh in mind.
+
+    PREVIOUSLY: this same check only ran inside option 6 (discover
+    breakout opportunities), where it printed as one warning line buried
+    among a dozen other export lines. By the time anyone saw it, the
+    build's quota was already spent and there was nothing left to do
+    about it except a full rebuild. Nothing here is new math — this
+    calls the exact same coverage.topic_coverage() / coverage_note()
+    functions option 6 already used — it is only run at a moment where
+    the answer can still change what the person does next.
+
+    Cheap: score_breakouts + build_clusters are pure math over data
+    already on disk, no API calls. Still wrapped, so a failure here
+    never blocks the build itself from being reported as done.
+    """
+    try:
+        baseline = load_baseline(niche_name)
+        scored = discover.score_breakouts(df, baseline)
+        if scored.empty:
+            return
+        clusters = discover.build_clusters(scored, max_clusters=None)
+        import coverage as _cov
+        cov = _cov.topic_coverage(scored, clusters)
+        if not cov:
+            return
+        print(f"\n  Contamination check: {cov['unmatched_share']:.0%} of "
+              f"videos matched none of this niche's {cov['clusters']} "
+              f"topic clusters.")
+        note = _cov.coverage_note(cov)
+        if note:
+            print("  ⚠️  Above the threshold where this is worth a second "
+                  "look before spending more quota on this niche:")
+            print("     " + note.replace("\n", "\n     "))
+    except Exception as e:
+        print(f"  (contamination check skipped: {type(e).__name__}: {e})")
 
 
 def discover_opportunities(niche_name):
@@ -888,7 +983,7 @@ def discover_opportunities(niche_name):
               "thumbnail pattern analysed.")
     paths.update({f"seo_{k}": v for k, v in seo_paths.items()})
 
-    # Curation prompt for Option 6's AI-curated path. Written every
+    # Curation prompt for Option 9's AI-curated path. Written every
     # discovery run, so a user who later wants an AI to pick 20
     # thumbnails to inspect has the source list ready and formatted.
     try:
@@ -896,7 +991,7 @@ def discover_opportunities(niche_name):
         cp_path = thumbnail_sheet.write_curation_prompt(scored, niche_name)
         print(f"  curation prompt → {cp_path}")
         print("     ↳ paste this into Claude/ChatGPT to get 20 curated video "
-              "IDs, then feed those to Option 6.")
+              "IDs, then feed those to Option 9.")
     except Exception as e:
         print(f"  (curation prompt skipped: {type(e).__name__}: {e})")
 
@@ -971,23 +1066,23 @@ def _menu():
     print("  ─────────────────────────────────────────────────────")
     print("  1) Build a niche database")
     print("  2) Grade a topic idea")
-    print("  7) Search intent & keyword signals")
-    print("  8) Tear down a channel")
-    print(" 13) Compare two channels")
+    print("  3) Search intent & keyword signals")
+    print("  4) Tear down a channel")
+    print("  5) Compare two channels")
     print()
     print("  EXPLORE — reads what you already have")
     print("  ─────────────────────────────────────────────────────")
-    print("  3) Discover breakout opportunities")
-    print("  4) Niche snapshot")
-    print("  5) Score a niche against your library")
-    print("  6) Thumbnail contact sheet")
-    print("  9) What's moved since last build")
-    print(" 10) Compare all niches side by side")
+    print("  6) Discover breakout opportunities")
+    print("  7) Niche snapshot")
+    print("  8) Score a niche against your library")
+    print("  9) Thumbnail contact sheet")
+    print(" 10) What's moved since last build")
+    print(" 11) Compare all niches side by side")
     print()
     print("  MANAGE — maintain your data")
     print("  ─────────────────────────────────────────────────────")
-    print(" 11) Rebuild from cleaned data")
-    print(" 12) Slice library to a shorter window")
+    print(" 12) Rebuild from cleaned data")
+    print(" 13) Slice library to a shorter window")
     print(" 14) Quit")
     return input("\nChoose [1-14]: ").strip()
 
@@ -1052,10 +1147,11 @@ def _dispatch(choice):
             import shorts as _sh
             if _sh.load_shorts(niche) is not None:
                 print("\n  Shorts were saved but not yet analysed — run "
-                      "option 3 to get\n  the shorts report "
+                      "option 6 to get\n  the shorts report "
                       "(exports/.../shorts/shorts.md).")
         except Exception:
             pass
+        _run_contamination_check(niche, df)
 
     elif choice == "2":
         keys = _load_keys_or_exit()
@@ -1084,36 +1180,39 @@ def _dispatch(choice):
                                   export_formats=formats)
 
     elif choice == "3":
+        _dispatch_signals()
+
+    elif choice == "4":
+        _dispatch_channel()
+
+    elif choice == "5":
+        _dispatch_channel_diff()
+
+    elif choice == "6":
         niche = _pick_niche("Niche name: ")
         if niche:
             discover_opportunities(niche)
 
-    elif choice == "4":
+    elif choice == "7":
         niche = _pick_niche("Niche name: ")
         if niche:
             show_niche(niche)
 
-    elif choice == "5":
+    elif choice == "8":
         niche = _pick_niche("Niche name: ")
         if niche:
             grade_existing_niche(niche)
 
-    elif choice == "6":
+    elif choice == "9":
         _dispatch_thumbnail_sheet()
 
-    elif choice == "7":
-        _dispatch_signals()
-
-    elif choice == "8":
-        _dispatch_channel()
-
-    elif choice == "9":
+    elif choice == "10":
         _dispatch_trends()
 
-    elif choice == "10":
+    elif choice == "11":
         _dispatch_compare()
 
-    elif choice == "11":
+    elif choice == "12":
         niche = _pick_niche("Niche name (the videos.csv should already be "
                             "edited/replaced at its normal path): ")
         if niche:
@@ -1125,11 +1224,8 @@ def _dispatch(choice):
                 if result.get("hint"):
                     print(f"      {result['hint']}")
 
-    elif choice == "12":
-        _dispatch_bulk_slice()
-
     elif choice == "13":
-        _dispatch_channel_diff()
+        _dispatch_bulk_slice()
 
     elif choice == "14":
         return "quit"
@@ -1140,7 +1236,7 @@ def _dispatch(choice):
 
 def _dispatch_compare():
     """
-    Option 10 — pick which built niches to compare.
+    Option 11 — pick which built niches to compare.
 
     Not "all niches at one window": that both over-selects (you rarely
     want every build you have ever made) and under-selects (a niche whose
@@ -1300,7 +1396,7 @@ def _dispatch_compare():
 
 def _dispatch_crossniche(keys):
     """
-    Offered at the end of option 10 — market pillars (demand/supply/
+    Offered at the end of option 11 — market pillars (demand/supply/
     momentum/opportunity) graded against the OTHER niches selected,
     rather than against each niche's own data.
 
@@ -1339,7 +1435,7 @@ def _dispatch_crossniche(keys):
 
 
 def _dispatch_verdict(keys, mismatch=None):
-    """Optional deep pass at the end of option 10. Returns a path or None."""
+    """Optional deep pass at the end of option 11. Returns a path or None."""
     import verdict as _v
     usable = [k for k in keys if _v.has_dataset(k)]
     if len(usable) < 2:
@@ -1363,7 +1459,7 @@ def _dispatch_verdict(keys, mismatch=None):
 
 def _dispatch_trends():
     """
-    Option 9 — compare the live dataset against the last archived build.
+    Option 10 — compare the live dataset against the last archived build.
 
     No API calls: every rebuild already archives the previous dataset to
     history/, and this reads one. The payoff is the only measured (rather
@@ -1415,7 +1511,7 @@ def _dispatch_trends():
 
 def _dispatch_channel():
     """
-    Option 8 — take one channel apart.
+    Option 4 — take one channel apart.
 
     Costs roughly 13 units for a 300-video channel, versus 13,000 for a
     niche build, because a channel's catalogue comes from its uploads
@@ -1469,9 +1565,9 @@ def _dispatch_channel():
 
 def _dispatch_channel_diff():
     """
-    Option 13 — fetch two channels and compare them side by side.
+    Option 5 — fetch two channels and compare them side by side.
 
-    Fetches both catalogs fresh (same cost as running option 8 twice),
+    Fetches both catalogs fresh (same cost as running option 4 twice),
     then computes the diff and exports to exports/channels/<a_vs_b>/.
 
     Optionally graded against a niche for the vs_niche fields, but that
@@ -1527,7 +1623,7 @@ def _dispatch_channel_diff():
 
 def _dispatch_signals():
     """
-    Option 7 — demand signals from outside the video data.
+    Option 3 — demand signals from outside the video data.
 
     Both sources are optional and independent: autocomplete needs no
     credentials at all, Reddit needs a subreddit list. Either can fail
@@ -1574,7 +1670,7 @@ def _dispatch_signals():
         if clusters:
             print(f"  Cluster topics ({len(clusters)}): {', '.join(clusters[:8])}")
         else:
-            print("  Cluster topics: none — run option 3 first to get them")
+            print("  Cluster topics: none — run option 6 first to get them")
         print()
         for key, label, sds, full, deep in opts:
             if not sds:
@@ -1607,7 +1703,7 @@ def _dispatch_signals():
                 # so plainly and return rather than silently substituting
                 # the niche name and mislabelling the output.
                 print("\n  No breakout clusters found for this niche.")
-                print("  Run option 3 (discover opportunities) first — it "
+                print("  Run option 6 (discover opportunities) first — it "
                       "writes the cluster file this reads.")
                 return
             if choice == "5":
@@ -1655,14 +1751,14 @@ def _dispatch_signals():
 
 def _dispatch_thumbnail_sheet():
     """
-    Interactive Option 6 (thumbnail contact sheet creator).
+    Interactive Option 9 (thumbnail contact sheet creator).
 
     Two entry points, matching the module's two paths:
       A) From a curated list — a paste of video IDs (or a filepath).
       B) Top-N from an existing breakout export.
 
     Neither path calls the YouTube API for data — they read what
-    option 3 already wrote to disk. A network call is still made to
+    option 6 already wrote to disk. A network call is still made to
     fetch the thumbnail images themselves.
     """
     import thumbnail_sheet
@@ -1822,8 +1918,8 @@ def interactive():
                 print()
                 print("Quotas reset at midnight Pacific Time (00:00 PT).")
                 print("Options while you wait:")
-                print("  · Option 3 or 4 — use data you've already collected")
-                print("  · Option 5 — grade a niche you already built (no API calls)")
+                print("  · Option 6 or 7 — use data you've already collected")
+                print("  · Option 8 — grade a niche you already built (no API calls)")
                 print("=" * 60)
                 print("Returning to menu — your data is untouched.\n")
             else:

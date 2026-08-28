@@ -104,55 +104,55 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <div class='menu-group'><p class='menu-group-label'>BUILD — uses your API quota</p><div class='menu-grid'>
 <div class='menu-row'><span class='key dear'>1</span><span class='label'>Build a niche database</span></div>
 <div class='menu-row'><span class='key cheap'>2</span><span class='label'>Grade a topic idea</span></div>
-<div class='menu-row'><span class='key free'>7</span><span class='label'>Search intent & keyword signals</span></div>
-<div class='menu-row'><span class='key cheap'>8</span><span class='label'>Tear down a channel</span></div>
-<div class='menu-row'><span class='key cheap'>13</span><span class='label'>Compare two channels</span></div>
+<div class='menu-row'><span class='key free'>3</span><span class='label'>Search intent & keyword signals</span></div>
+<div class='menu-row'><span class='key cheap'>4</span><span class='label'>Tear down a channel</span></div>
+<div class='menu-row'><span class='key cheap'>5</span><span class='label'>Compare two channels</span></div>
 </div></div>
 <div class='menu-group'><p class='menu-group-label'>EXPLORE — reads what you already have</p><div class='menu-grid'>
-<div class='menu-row'><span class='key free'>3</span><span class='label'>Discover breakout opportunities</span></div>
-<div class='menu-row'><span class='key free'>4</span><span class='label'>Niche snapshot</span></div>
-<div class='menu-row'><span class='key free'>5</span><span class='label'>Score a niche against your library</span></div>
-<div class='menu-row'><span class='key free'>6</span><span class='label'>Thumbnail contact sheet</span></div>
-<div class='menu-row'><span class='key free'>9</span><span class='label'>What's moved since last build</span></div>
-<div class='menu-row'><span class='key free'>10</span><span class='label'>Compare all niches side by side</span></div>
+<div class='menu-row'><span class='key free'>6</span><span class='label'>Discover breakout opportunities</span></div>
+<div class='menu-row'><span class='key free'>7</span><span class='label'>Niche snapshot</span></div>
+<div class='menu-row'><span class='key free'>8</span><span class='label'>Score a niche against your library</span></div>
+<div class='menu-row'><span class='key free'>9</span><span class='label'>Thumbnail contact sheet</span></div>
+<div class='menu-row'><span class='key free'>10</span><span class='label'>What's moved since last build</span></div>
+<div class='menu-row'><span class='key free'>11</span><span class='label'>Compare all niches side by side</span></div>
 </div></div>
 <div class='menu-group'><p class='menu-group-label'>MANAGE — maintain your data</p><div class='menu-grid'>
-<div class='menu-row'><span class='key free'>11</span><span class='label'>Rebuild from cleaned data</span></div>
-<div class='menu-row'><span class='key free'>12</span><span class='label'>Slice library to a shorter window</span></div>
+<div class='menu-row'><span class='key free'>12</span><span class='label'>Rebuild from cleaned data</span></div>
+<div class='menu-row'><span class='key free'>13</span><span class='label'>Slice library to a shorter window</span></div>
 <div class='menu-row'><span class='key ghost'>14</span><span class='label'>Quit</span></div>
 </div></div>
 </section>
 <p class='legend'><span><b style='background:var(--apricot)'></b>~13,000 units (search)</span><span><b style='background:var(--butter)'></b>~1,000 units (metadata)</span><span><b style='background:var(--mint)'></b>Free — reads what you already have</span></p>
 <h2 class='section-head'>What each module does</h2>
 <div class='modules'>
-<div class='mod'><p class='mod-name'>angles.py</p><p class='mod-what'>Generates the AI prompt file you paste into Claude to get video angle ideas. Takes the breakout clusters and formats them as a research brief.</p><p class='mod-eg'>After running option 3, open angles_prompt.md and paste it into Claude to get 15 specific angle ideas for the niche.</p></div>
+<div class='mod'><p class='mod-name'>angles.py</p><p class='mod-what'>Generates the AI prompt file you paste into Claude to get video angle ideas. Takes the breakout clusters and formats them as a research brief.</p><p class='mod-eg'>After running option 6, open angles_prompt.md and paste it into Claude to get 15 specific angle ideas for the niche.</p></div>
 <div class='mod'><p class='mod-name'>api_keys.py</p><p class='mod-what'>Manages your 12 YouTube API keys — loads them from .env, chains them so you don't burn one out, and reserves the last two for topic grading.</p><p class='mod-eg'>You don't call this directly. It runs in the background every time the engine hits YouTube.</p></div>
 <div class='mod'><p class='mod-name'>baseline.py</p><p class='mod-what'>Computes the niche's own percentile anchors — what's a typical view count, what's a typical upload rate. Everything else compares against these numbers.</p><p class='mod-eg'>You never call this directly. It runs automatically when you build or load a niche.</p></div>
-<div class='mod'><p class='mod-name'>calendars.py</p><p class='mod-what'>Produces a publishing calendar based on when the winning videos in a niche were uploaded. Tells you which days and times have historically produced the most breakouts.</p><p class='mod-eg'>After running option 3, open the timing/ folder to see the best days and hour-blocks to publish.</p></div>
+<div class='mod'><p class='mod-name'>calendars.py</p><p class='mod-what'>Produces a publishing calendar based on when the winning videos in a niche were uploaded. Tells you which days and times have historically produced the most breakouts.</p><p class='mod-eg'>After running option 6, open the timing/ folder to see the best days and hour-blocks to publish.</p></div>
 <div class='mod'><p class='mod-name'>calibration.py</p><p class='mod-what'>Holds the calibrated thresholds for market-size and spread labels — what counts as a 'large' market, what makes a spread 'gentle' vs 'brutal'. Separately calibrated at 30d, 90d, and 365d from real niche data.</p><p class='mod-eg'>When you see 'gentle for large markets' on a niche summary, that label came from this module.</p></div>
-<div class='mod'><p class='mod-name'>channel.py</p><p class='mod-what'>Fetches and analyses a single channel's full video catalogue — cadence, trajectory, breakout rate, title patterns, tags. Also computes the diff between two channels.</p><p class='mod-eg'>Option 8: tear down a channel you admire to see exactly how they operate. Option 13: compare two channels side by side to see where they diverge.</p></div>
+<div class='mod'><p class='mod-name'>channel.py</p><p class='mod-what'>Fetches and analyses a single channel's full video catalogue — cadence, trajectory, breakout rate, title patterns, tags. Also computes the diff between two channels.</p><p class='mod-eg'>Option 4: tear down a channel you admire to see exactly how they operate. Option 5: compare two channels side by side to see where they diverge.</p></div>
 <div class='mod'><p class='mod-name'>collector.py</p><p class='mod-what'>The part that actually talks to YouTube. Runs the searches, downloads video metadata, handles key rotation, retries failed requests, and saves everything to disk.</p><p class='mod-eg'>Option 1. Everything you can explore for free was collected by this module at some point.</p></div>
-<div class='mod'><p class='mod-name'>compare.py</p><p class='mod-what'>Loads all your built niches and lines them up in one table so you can compare market size, spread, and scores at a glance.</p><p class='mod-eg'>Option 10: 'I have 10 niches built. Which one has the best spread for a newcomer?' — one command, one table.</p></div>
+<div class='mod'><p class='mod-name'>compare.py</p><p class='mod-what'>Loads all your built niches and lines them up in one table so you can compare market size, spread, and scores at a glance.</p><p class='mod-eg'>Option 11: 'I have 10 niches built. Which one has the best spread for a newcomer?' — one command, one table.</p></div>
 <div class='mod'><p class='mod-name'>config.py</p><p class='mod-what'>All the tunable numbers in one place — minimum videos per cluster, breakout score weights, spread calibration thresholds, bootstrap resamples. Change a number here and it flows everywhere that uses it.</p><p class='mod-eg'>If you want to see more clusters in a breakout report, raise CLUSTER_MAX here.</p></div>
 <div class='mod'><p class='mod-name'>coverage.py</p><p class='mod-what'>Checks how much of the niche's content actually got picked up by the cluster analysis. Warns you when a large share of videos don't cluster — which usually means contamination or a very fragmented niche.</p><p class='mod-eg'>When a breakout report says '32% unmatched — possible contamination', that warning came from this module.</p></div>
-<div class='mod'><p class='mod-name'>crossniche.py</p><p class='mod-what'>Grades a niche against all your other niches rather than against itself. This is what makes option 5 useful — without it, every niche would score identically on demand and supply.</p><p class='mod-eg'>Option 5: 'Is ancient_history a strong niche or a weak one compared to the 9 others I've built?' — this module does the pooled comparison.</p></div>
-<div class='mod'><p class='mod-name'>dashboard.py</p><p class='mod-what'>Produces the market dashboard export — a one-page summary of a niche's key numbers formatted for quick review.</p><p class='mod-eg'>After running option 3, open the market/ folder for the dashboard.</p></div>
-<div class='mod'><p class='mod-name'>discover.py</p><p class='mod-what'>The main analysis engine. Scores every video as a breakout candidate, groups them into topic clusters, and writes everything out — the research MD, the discovery MD, the clusters CSV, the JSON, the video table.</p><p class='mod-eg'>Option 3. This is the module you interact with most, even if you never open it.</p></div>
+<div class='mod'><p class='mod-name'>crossniche.py</p><p class='mod-what'>Grades a niche against all your other niches rather than against itself. This is what makes option 8 useful — without it, every niche would score identically on demand and supply.</p><p class='mod-eg'>Option 8: 'Is ancient_history a strong niche or a weak one compared to the 9 others I've built?' — this module does the pooled comparison.</p></div>
+<div class='mod'><p class='mod-name'>dashboard.py</p><p class='mod-what'>Produces the market dashboard export — a one-page summary of a niche's key numbers formatted for quick review.</p><p class='mod-eg'>After running option 6, open the market/ folder for the dashboard.</p></div>
+<div class='mod'><p class='mod-name'>discover.py</p><p class='mod-what'>The main analysis engine. Scores every video as a breakout candidate, groups them into topic clusters, and writes everything out — the research MD, the discovery MD, the clusters CSV, the JSON, the video table.</p><p class='mod-eg'>Option 6. This is the module you interact with most, even if you never open it.</p></div>
 <div class='mod'><p class='mod-name'>grader.py</p><p class='mod-what'>Scores a single topic or niche across the three pillars — demand, supply, momentum — and combines them into an opportunity score.</p><p class='mod-eg'>Option 2: 'Is there a market for a video about Excel automation?' — grader runs and returns a score with pillar breakdown.</p></div>
 <div class='mod'><p class='mod-name'>insights.py</p><p class='mod-what'>Derives summary statistics from a video dataset — lifecycle, evergreen ratio, engagement patterns, creator-size distribution. Written to insights.json alongside every build.</p><p class='mod-eg'>When a niche summary tells you '72% of content is evergreen', that reading came from this module.</p></div>
 <div class='mod'><p class='mod-name'>main.py</p><p class='mod-what'>The entry point — the numbered menu you interact with. Reads your input, calls the right module, and handles the interactive flows like picking a niche or a window.</p><p class='mod-eg'>This is what runs when you type 'py main.py'.</p></div>
 <div class='mod'><p class='mod-name'>metrics.py</p><p class='mod-what'>Computes per-video derived metrics from the raw API data — views_per_hour, outlier_ratio, breakout_velocity, engagement_rate. These are the numbers every other module reasons about.</p><p class='mod-eg'>You never call this directly. It runs as part of option 1 when building a niche.</p></div>
 <div class='mod'><p class='mod-name'>paths.py</p><p class='mod-what'>Handles all the file path logic — where datasets live, where exports go, how to name files with niche and window so nothing overwrites anything else.</p><p class='mod-eg'>If you ever wonder why a file is named 'ancient_history_365d_breakout.csv', the naming convention is enforced here.</p></div>
 <div class='mod'><p class='mod-name'>quota_tracker.py</p><p class='mod-what'>Tracks how many YouTube API units you've spent this session, per key. Shows the bar at the end of every run so you can see what you have left.</p><p class='mod-eg'>The 'Quota used: 22,497 / 120,000 units' line printed after every build comes from this module.</p></div>
-<div class='mod'><p class='mod-name'>report.py</p><p class='mod-what'>Formats and prints results to the terminal — niche summaries, grade reports, quota bars. Also the module that adds calibration warnings when a number shouldn't be fully trusted.</p><p class='mod-eg'>The formatted output you see in the terminal after running option 4 or 5 is this module rendering the numbers.</p></div>
-<div class='mod'><p class='mod-name'>seo.py</p><p class='mod-what'>Analyses which title words, hashtags, and tags are most associated with breakout videos. Uses a Wilson-score-corrected lift ranking so small-sample noise doesn't dominate.</p><p class='mod-eg'>After option 3, open packaging/seo.md to see which title words and tags the winners used more than average.</p></div>
-<div class='mod'><p class='mod-name'>shorts.py</p><p class='mod-what'>Analyses the Shorts that were filtered out of the main dataset. Finds which topics are busy in short form but thin in long-form.</p><p class='mod-eg'>After option 3, open shorts/shorts.md to see if any Shorts-heavy topics are underserved in full-length format.</p></div>
-<div class='mod'><p class='mod-name'>signals.py</p><p class='mod-what'>Gathers demand signals from outside YouTube — Google autocomplete (what people are searching) and Reddit (what communities are discussing). Produces the intent gap report.</p><p class='mod-eg'>Option 7: 'What are people searching that nobody has covered yet in this niche?' — this module finds those gaps.</p></div>
+<div class='mod'><p class='mod-name'>report.py</p><p class='mod-what'>Formats and prints results to the terminal — niche summaries, grade reports, quota bars. Also the module that adds calibration warnings when a number shouldn't be fully trusted.</p><p class='mod-eg'>The formatted output you see in the terminal after running option 7 or 8 is this module rendering the numbers.</p></div>
+<div class='mod'><p class='mod-name'>seo.py</p><p class='mod-what'>Analyses which title words, hashtags, and tags are most associated with breakout videos. Uses a Wilson-score-corrected lift ranking so small-sample noise doesn't dominate.</p><p class='mod-eg'>After option 6, open packaging/seo.md to see which title words and tags the winners used more than average.</p></div>
+<div class='mod'><p class='mod-name'>shorts.py</p><p class='mod-what'>Analyses the Shorts that were filtered out of the main dataset. Finds which topics are busy in short form but thin in long-form.</p><p class='mod-eg'>After option 6, open shorts/shorts.md to see if any Shorts-heavy topics are underserved in full-length format.</p></div>
+<div class='mod'><p class='mod-name'>signals.py</p><p class='mod-what'>Gathers demand signals from outside YouTube — Google autocomplete (what people are searching) and Reddit (what communities are discussing). Produces the intent gap report.</p><p class='mod-eg'>Option 3: 'What are people searching that nobody has covered yet in this niche?' — this module finds those gaps.</p></div>
 <div class='mod'><p class='mod-name'>statistics.py</p><p class='mod-what'>Computes and saves the summary statistics for a niche dataset — percentiles, medians, channel-size breakdown. The numbers that appear in every niche summary.</p><p class='mod-eg'>The 'median views: 4,200' line in a niche snapshot comes from the statistics.csv this module writes.</p></div>
-<div class='mod'><p class='mod-name'>thumbnail_sheet.py</p><p class='mod-what'>Downloads thumbnails for the top breakout videos and tiles them into a contact sheet image for visual study.</p><p class='mod-eg'>Option 6: 'Show me what the winning thumbnails in this niche actually look like' — contact sheet of 20 images.</p></div>
-<div class='mod'><p class='mod-name'>timing.py</p><p class='mod-what'>Analyses publish-time patterns — which hour blocks and day-of-week combinations produced the most breakouts. Uses shrinkage and bootstrap CIs so thin time slots don't look falsely confident.</p><p class='mod-eg'>After option 3, open timing/ to see the best hour blocks to publish in this niche.</p></div>
-<div class='mod'><p class='mod-name'>trends.py</p><p class='mod-what'>Compares two builds of the same niche taken at different times to measure actual change — views gained, new creators, rising and falling topics.</p><p class='mod-eg'>Option 9: 'Has this niche actually grown since I last built it?' — trends does the before/after comparison.</p></div>
-<div class='mod'><p class='mod-name'>verdict.py</p><p class='mod-what'>The composite scoring system — combines Entry, Durability, Reliability, Reward, and Effort into one score per niche, then ranks and compares them. Produces the verdict HTML report.</p><p class='mod-eg'>Option 10 → verdict HTML: 'Of my 10 niches, which should I actually enter?' — verdict scores and ranks them on the five dimensions.</p></div>
+<div class='mod'><p class='mod-name'>thumbnail_sheet.py</p><p class='mod-what'>Downloads thumbnails for the top breakout videos and tiles them into a contact sheet image for visual study.</p><p class='mod-eg'>Option 9: 'Show me what the winning thumbnails in this niche actually look like' — contact sheet of 20 images.</p></div>
+<div class='mod'><p class='mod-name'>timing.py</p><p class='mod-what'>Analyses publish-time patterns — which hour blocks and day-of-week combinations produced the most breakouts. Uses shrinkage and bootstrap CIs so thin time slots don't look falsely confident.</p><p class='mod-eg'>After option 6, open timing/ to see the best hour blocks to publish in this niche.</p></div>
+<div class='mod'><p class='mod-name'>trends.py</p><p class='mod-what'>Compares two builds of the same niche taken at different times to measure actual change — views gained, new creators, rising and falling topics.</p><p class='mod-eg'>Option 10: 'Has this niche actually grown since I last built it?' — trends does the before/after comparison.</p></div>
+<div class='mod'><p class='mod-name'>verdict.py</p><p class='mod-what'>The composite scoring system — combines Entry, Durability, Reliability, Reward, and Effort into one score per niche, then ranks and compares them. Produces the verdict HTML report.</p><p class='mod-eg'>Option 11 → verdict HTML: 'Of my 10 niches, which should I actually enter?' — verdict scores and ranks them on the five dimensions.</p></div>
 </div>
 <h2 class='section-head'>End-to-end workflows</h2>
 <div class='jobs'>
@@ -161,7 +161,7 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <div class='chain'>
 <span class='step'><span class='key dear'>1</span>build</span>
 <span class='arrow'>→</span>
-<span class='step'><span class='key free'>3</span>discover</span>
+<span class='step'><span class='key free'>6</span>discover</span>
 <span class='arrow'>→</span>
 <span class='file'>breakout_research.md</span>
 <span class='arrow'>→</span>
@@ -181,16 +181,16 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <article class='job' style='--tint:var(--mint)'>
 <h2>Decide which niche to enter</h2><p class='aim'>You have several niches built. Which one should you actually commit to?</p>
 <div class='chain'>
-<span class='step'><span class='key free'>10</span>compare</span>
+<span class='step'><span class='key free'>11</span>compare</span>
 <span class='arrow'>→</span>
 <span class='file'>_verdict.html</span>
 </div>
-<p class='note'>Option 10 shows the table. At the end it offers a scored verdict — say yes. It measures <strong>whether a small channel ever wins here</strong>, whether the catalogue compounds, how concentrated the outcomes are, and what a hit is worth. No quota — reads videos.csv from disk.</p>
+<p class='note'>Option 11 shows the table. At the end it offers a scored verdict — say yes. It measures <strong>whether a small channel ever wins here</strong>, whether the catalogue compounds, how concentrated the outcomes are, and what a hit is worth. No quota — reads videos.csv from disk.</p>
 <p class='cost'>Free · reads videos.csv from disk</p></article>
 <article class='job' style='--tint:var(--mint)'>
 <h2>Cross-niche topic research</h2><p class='aim'>You want title ideas that borrow proven vocabulary from adjacent niches, not just your main one.</p>
 <div class='chain'>
-<span class='step'><span class='key free'>3</span>discover main niche</span>
+<span class='step'><span class='key free'>6</span>discover main niche</span>
 <span class='arrow'>→</span>
 <span class='file'>breakout_discovery.md</span>
 <span class='arrow'>→</span>
@@ -203,7 +203,7 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <article class='job' style='--tint:var(--butter)'>
 <h2>Clone a channel you admire</h2><p class='aim'>One creator is doing exactly what you want to do. What exactly are they doing?</p>
 <div class='chain'>
-<span class='step'><span class='key cheap'>8</span>teardown</span>
+<span class='step'><span class='key cheap'>4</span>teardown</span>
 <span class='arrow'>→</span>
 <span class='file'>teardown.md</span>
 <span class='arrow'>→</span>
@@ -214,7 +214,7 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <article class='job' style='--tint:var(--butter)'>
 <h2>Compare two channels directly</h2><p class='aim'>How do two creators in the same space actually differ — who's performing better, and why?</p>
 <div class='chain'>
-<span class='step'><span class='key cheap'>13</span>compare two channels</span>
+<span class='step'><span class='key cheap'>5</span>compare two channels</span>
 <span class='arrow'>→</span>
 <span class='file'>diff.md</span>
 <span class='arrow'>→</span>
@@ -225,18 +225,18 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <article class='job' style='--tint:var(--mint)'>
 <h2>Learn how to package it</h2><p class='aim'>Topic decided. Now: how do the winners title and thumbnail it?</p>
 <div class='chain'>
-<span class='step'><span class='key free'>3</span>discover</span>
+<span class='step'><span class='key free'>6</span>discover</span>
 <span class='arrow'>→</span>
 <span class='file'>packaging/seo.md</span>
 <span class='arrow'>→</span>
-<span class='step'><span class='key free'>6</span>contact sheet</span>
+<span class='step'><span class='key free'>9</span>contact sheet</span>
 </div>
 <p class='note'>Tag lift, title word lift, hashtag patterns. <strong>Lift is correlational</strong> — it shows what winners did, not what caused the winning.</p>
 <p class='cost'>Free after the build</p></article>
 <article class='job' style='--tint:var(--mint)'>
 <h2>Research keywords</h2><p class='aim'>What do people actually type into the search box?</p>
 <div class='chain'>
-<span class='step'><span class='key free'>7</span>autocomplete</span>
+<span class='step'><span class='key free'>3</span>autocomplete</span>
 <span class='arrow'>→</span>
 <span class='file'>intent_gaps.md</span>
 <span class='arrow'>→</span>
@@ -247,7 +247,7 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <article class='job' style='--tint:var(--mint)'>
 <h2>Find what's coming</h2><p class='aim'>Cover something before the wave reaches YouTube.</p>
 <div class='chain'>
-<span class='step'><span class='key free'>7</span>Reddit signals</span>
+<span class='step'><span class='key free'>3</span>Reddit signals</span>
 <span class='arrow'>→</span>
 <span class='file'>signals/reddit_signals.md</span>
 </div>
@@ -256,16 +256,16 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <article class='job' style='--tint:var(--mint)'>
 <h2>Compare at a shorter window</h2><p class='aim'>You have 365d builds. You want to see what the last 90 days looks like across all of them at once.</p>
 <div class='chain'>
-<span class='step'><span class='key free'>12</span>slice library to 90d</span>
+<span class='step'><span class='key free'>13</span>slice library to 90d</span>
 <span class='arrow'>→</span>
-<span class='step'><span class='key free'>10</span>compare at 90d</span>
+<span class='step'><span class='key free'>11</span>compare at 90d</span>
 </div>
-<p class='note'>Slicing is free — it re-filters the data you already paid for. Option 12 does all your niches in one go. Then option 10 will ask which window you want — <strong>type 90</strong> (not 90d) and it compares the slices.</p>
+<p class='note'>Slicing is free — it re-filters the data you already paid for. Option 13 does all your niches in one go. Then option 11 will ask which window you want — <strong>type 90</strong> (not 90d) and it compares the slices.</p>
 <p class='cost'>Free · zero API calls</p></article>
 <article class='job' style='--tint:var(--mint)'>
 <h2>See what actually moved</h2><p class='aim'>Is this niche going anywhere since you last looked?</p>
 <div class='chain'>
-<span class='step'><span class='key free'>9</span>trends</span>
+<span class='step'><span class='key free'>10</span>trends</span>
 <span class='arrow'>→</span>
 <span class='file'>trends/since_last_build.md</span>
 </div>
@@ -274,7 +274,7 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <article class='job' style='--tint:var(--mint)'>
 <h2>See which themes actually last</h2><p class='aim'>Is this format durable, or was it a moment?</p>
 <div class='chain'>
-<span class='step'><span class='key free'>3</span>discover</span>
+<span class='step'><span class='key free'>6</span>discover</span>
 <span class='arrow'>→</span>
 <span class='file'>breakouts/by_era.md</span>
 </div>
@@ -283,7 +283,7 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <article class='job wide' style='--tint:var(--mint)'>
 <h2>Find a repeatable format</h2><p class='aim'>A series, not a one-off.</p>
 <div class='chain'>
-<span class='step'><span class='key free'>3</span>discover</span>
+<span class='step'><span class='key free'>6</span>discover</span>
 <span class='arrow'>→</span>
 <span class='file'>breakouts/breakout_clusters.csv</span>
 <span class='arrow'>→</span>
@@ -295,10 +295,10 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <section class='limits'><h2>What it can't do</h2><p class='lead'>Worth knowing before you go looking for these.</p><dl>
 <dt>Tell you whether <em>your</em> video will work</dt><dd>It never sees your channel. Every number describes the market, not your odds in it.</dd>
 <dt>Judge whether a video is on-topic</dt><dd>There's no topical relevance filter, deliberately. Occasional off-topic leaks are the price of not silently dropping things that only look irrelevant. Run the cleaning workflow on any niche before treating its numbers as calibration data.</dd>
-<dt>Measure current demand from one build</dt><dd>A single snapshot cannot separate a video still climbing from one that stopped a year ago — views_per_hour is a lifetime average. Option 9 fixes this, but only once you have two builds of the same niche to compare.</dd>
-<dt>Measure search demand in the scoring</dt><dd>Scores are built from how existing videos performed. A topic nobody has covered looks identical to a topic nobody wants. Option 7 gets close from the outside, but it doesn't feed the scoring yet.</dd>
+<dt>Measure current demand from one build</dt><dd>A single snapshot cannot separate a video still climbing from one that stopped a year ago — views_per_hour is a lifetime average. Option 10 fixes this, but only once you have two builds of the same niche to compare.</dd>
+<dt>Measure search demand in the scoring</dt><dd>Scores are built from how existing videos performed. A topic nobody has covered looks identical to a topic nobody wants. Option 3 gets close from the outside, but it doesn't feed the scoring yet.</dd>
 <dt>See why a video worked</dt><dd>Click-through rate, average view duration, retention and traffic sources are private analytics. No public API exposes them at any price, for any channel. Everything here is inference from outside.</dd>
 <dt>Validate the Reliability score</dt><dd>Reliability measures outcome concentration — how narrow the gap between a decent and a great video is. That's a reasonable proxy for predictability, but it hasn't been checked against real channel outcomes. Treat it as a structured heuristic until you have your own data to compare against.</dd>
 </dl></section>
-<footer><span>29 modules</span><span>Deterministic — same data in, same answer out</span><span>Math discovers, AI explains</span><span>Generated 2026-08-26</span></footer>
+<footer><span>29 modules</span><span>Deterministic — same data in, same answer out</span><span>Math discovers, AI explains</span><span>Generated 2026-08-28</span></footer>
 </div></body></html>

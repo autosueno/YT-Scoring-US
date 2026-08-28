@@ -450,7 +450,7 @@ def describe(p90_views, p75_views, contamination_share=None, window_days=None):
 # ============================================================
 # WHY RELATIVE AND NOT ABSOLUTE
 # ------------------------------
-# Option 5 originally graded a niche against a baseline built from that
+# Option 8 originally graded a niche against a baseline built from that
 # SAME niche. That is arithmetic, not measurement: a niche's own median
 # sits at percentile 50 of itself by definition, its own P90 at
 # percentile 90, and DEMAND_TAIL_WEIGHT=0.35 blends those into exactly

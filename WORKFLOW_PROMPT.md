@@ -25,17 +25,17 @@ Three pillars: **Demand** (inferred from engagement velocity and consumption), *
 ```
 1) Build a niche database
 2) Grade a topic idea
-7) Search intent & keyword signals
-8) Tear down a channel
-13) Compare two channels
-3) Discover breakout opportunities
-4) Niche snapshot
-5) Score a niche against your library
-6) Thumbnail contact sheet
-9) What's moved since last build
-10) Compare all niches side by side
-11) Rebuild from cleaned data
-12) Slice library to a shorter window
+3) Search intent & keyword signals
+4) Tear down a channel
+5) Compare two channels
+6) Discover breakout opportunities
+7) Niche snapshot
+8) Score a niche against your library
+9) Thumbnail contact sheet
+10) What's moved since last build
+11) Compare all niches side by side
+12) Rebuild from cleaned data
+13) Slice library to a shorter window
 14) Quit
 ```
 
@@ -43,7 +43,7 @@ Three pillars: **Demand** (inferred from engagement velocity and consumption), *
 
 **Find what to make** — You have a niche. You need ideas that are genuinely under-served, not just ideas.
 
-    [1] build → [3] discover → `breakout_research.md` → paste into Claude → [2] grade the best 2-3
+    [1] build → [6] discover → `breakout_research.md` → paste into Claude → [2] grade the best 2-3
 
 The main loop — everything else supports it. Don't skip the grading step. **An angle that reads beautifully can still sit in a saturated corner**, and 1,000 units is cheap insurance against a week of wasted production.  _13,000 units to build · ~1,000 per topic graded_
 
@@ -55,67 +55,67 @@ Read the **demand-minus-supply imbalance**, not the headline score. Demand well 
 
 **Decide which niche to enter** — You have several niches built. Which one should you actually commit to?
 
-    [10] compare → `_verdict.html`
+    [11] compare → `_verdict.html`
 
-Option 10 shows the table. At the end it offers a scored verdict — say yes. It measures **whether a small channel ever wins here**, whether the catalogue compounds, how concentrated the outcomes are, and what a hit is worth. No quota — reads videos.csv from disk.  _Free · reads videos.csv from disk_
+Option 11 shows the table. At the end it offers a scored verdict — say yes. It measures **whether a small channel ever wins here**, whether the catalogue compounds, how concentrated the outcomes are, and what a hit is worth. No quota — reads videos.csv from disk.  _Free · reads videos.csv from disk_
 
 **Cross-niche topic research** — You want title ideas that borrow proven vocabulary from adjacent niches, not just your main one.
 
-    [3] discover main niche → `breakout_discovery.md` → repeat for 1-2 crossover niches → paste all 3 + your prompt into Claude
+    [6] discover main niche → `breakout_discovery.md` → repeat for 1-2 crossover niches → paste all 3 + your prompt into Claude
 
 The discovery MD is lean on purpose — **6-8KB per file** so pasting three together doesn't blow the context window. Your standalone prompt does the ranking and title generation; the files just carry the cluster data.  _Free · all three reads are from disk_
 
 **Clone a channel you admire** — One creator is doing exactly what you want to do. What exactly are they doing?
 
-    [8] teardown → `teardown.md` → `thumbnails/`
+    [4] teardown → `teardown.md` → `thumbnails/`
 
 Cadence, growth trajectory, their own breakouts, title **templates**, tags and thumbnails. Costs ~13 units because a catalogue comes from the uploads playlist (1 unit per 50) rather than search (100 per call). **Format transfers; specific videos don't.**  _~13 units for a 300-video channel_
 
 **Compare two channels directly** — How do two creators in the same space actually differ — who's performing better, and why?
 
-    [13] compare two channels → `diff.md` → `diff.json`
+    [5] compare two channels → `diff.md` → `diff.json`
 
 Performance, cadence, format, trajectory, title language overlap and tag overlap — all in one diff. **Costs about 26 units total** (13 per channel catalogue).  _~26 units total_
 
 **Learn how to package it** — Topic decided. Now: how do the winners title and thumbnail it?
 
-    [3] discover → `packaging/seo.md` → [6] contact sheet
+    [6] discover → `packaging/seo.md` → [9] contact sheet
 
 Tag lift, title word lift, hashtag patterns. **Lift is correlational** — it shows what winners did, not what caused the winning.  _Free after the build_
 
 **Research keywords** — What do people actually type into the search box?
 
-    [7] autocomplete → `intent_gaps.md` → paste into Claude for triage
+    [3] autocomplete → `intent_gaps.md` → paste into Claude for triage
 
 Google autocomplete harvest — what gets suggested tells you what's being searched. The intent gap report crosses this against your niche to find **what's searched but not covered**. Matching is lexical, so triage with AI before acting.  _Free · no YouTube quota_
 
 **Find what's coming** — Cover something before the wave reaches YouTube.
 
-    [7] Reddit signals → `signals/reddit_signals.md`
+    [3] Reddit signals → `signals/reddit_signals.md`
 
 Terms climbing on Reddit but thin on YouTube. **Treat these as leads to check, not forecasts** — the idea that social chatter reliably precedes YouTube is widely repeated and never actually demonstrated.  _Free · no YouTube quota_
 
 **Compare at a shorter window** — You have 365d builds. You want to see what the last 90 days looks like across all of them at once.
 
-    [12] slice library to 90d → [10] compare at 90d
+    [13] slice library to 90d → [11] compare at 90d
 
-Slicing is free — it re-filters the data you already paid for. Option 12 does all your niches in one go. Then option 10 will ask which window you want — **type 90** (not 90d) and it compares the slices.  _Free · zero API calls_
+Slicing is free — it re-filters the data you already paid for. Option 13 does all your niches in one go. Then option 11 will ask which window you want — **type 90** (not 90d) and it compares the slices.  _Free · zero API calls_
 
 **See what actually moved** — Is this niche going anywhere since you last looked?
 
-    [9] trends → `trends/since_last_build.md`
+    [10] trends → `trends/since_last_build.md`
 
 The only **measured** demand figure the engine produces. Everywhere else views_per_hour is a lifetime average — two snapshots give actual views gained, separating **still being watched** from **finished months ago**. Needs two builds of the same niche, days apart.  _Free · reads the history/ folder_
 
 **See which themes actually last** — Is this format durable, or was it a moment?
 
-    [3] discover → `breakouts/by_era.md`
+    [6] discover → `breakouts/by_era.md`
 
 Breakouts split into 0-90d / 90-180d / 180-365d, each ranked against its own contemporaries. A theme appearing in all three eras is a **format**; one appearing only in the newest is a news cycle.  _Free · slices the build you already have_
 
 **Find a repeatable format** — A series, not a one-off.
 
-    [3] discover → `breakouts/breakout_clusters.csv` → sort by unique_channels
+    [6] discover → `breakouts/breakout_clusters.csv` → sort by unique_channels
 
 A cluster where seven or more separate channels succeeded is a **format**, not a fluke. That's the difference between one good video and a content engine.  _Free after the build_
 

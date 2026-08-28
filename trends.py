@@ -103,6 +103,24 @@ def _snapshot_date(df, fallback):
 # COMPARISON
 # ============================================================
 
+# A market-movement % change smaller than this is not reliably a real
+# shift — sample composition changes between builds (a slightly
+# different set of videos matching the same query) by roughly this much
+# on its own, even when nothing in the market actually moved. Presenting
+# a 3% shift with the same confidence as a 30% one is misleading; this
+# gives the reader an honest "don't read into this" signal instead.
+NOISE_FLOOR_PCT = 5.0
+
+
+def _market_reading(change):
+    """Plain-English reading for one market-movement metric's % change."""
+    if abs(change) < NOISE_FLOOR_PCT:
+        return "within noise range — not a signal either way"
+    direction = "up" if change > 0 else "down"
+    magnitude = "sharply" if abs(change) >= 20 else "modestly"
+    return f"{direction} {magnitude} — likely a real shift, not noise"
+
+
 def compare_snapshots(now_df, then_df, now_date=None, then_date=None):
     """
     Diff two snapshots of the same niche.
@@ -312,12 +330,22 @@ def export_trend_report(niche_name, current_df) -> dict:
     if mk:
         L.append("## Market movement")
         L.append("")
-        L.append("| metric | then | now | change |")
-        L.append("|---|---|---|---|")
+        L.append(f"Shifts smaller than ±{NOISE_FLOOR_PCT:.0f}% are flagged as "
+                 f"**noise** rather than given a precise reading — sample "
+                 f"composition changes between builds by roughly that much "
+                 f"on its own, even when the market hasn't actually moved.")
+        L.append("")
+        L.append("| metric | then | now | change | reading |")
+        L.append("|---|---|---|---|---|")
         for v in mk.values():
-            arrow = "↑" if v["change"] > 0 else ("↓" if v["change"] < 0 else "→")
+            reading = _market_reading(v["change"])
+            if abs(v["change"]) < NOISE_FLOOR_PCT:
+                change_cell = f"±{v['change']:+.1f}% (noise)"
+            else:
+                arrow = "↑" if v["change"] > 0 else "↓"
+                change_cell = f"{arrow} {v['change']:+.1f}%"
             L.append(f"| {v['label']} | {v['then']:,.2f} | {v['now']:,.2f} | "
-                     f"{arrow} {v['change']:+.1f}% |")
+                     f"{change_cell} | {reading} |")
         L.append("")
         L.append("> Sample composition changes between builds, so a shift "
                  "here is partly the market moving and partly a different "

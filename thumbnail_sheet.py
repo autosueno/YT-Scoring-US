@@ -1,5 +1,5 @@
 """
-thumbnail_sheet.py — Option 7: Thumbnail Contact Sheet Creator
+thumbnail_sheet.py — Option 9: Thumbnail Contact Sheet Creator
 
 TWO INPUT PATHS, ONE OUTPUT DISCIPLINE
 --------------------------------------
@@ -72,7 +72,7 @@ def _read_breakout_csv(niche_name: str) -> pd.DataFrame:
                         "breakout.csv")
     if not os.path.exists(path):
         raise FileNotFoundError(
-            f"No breakout export found for {niche_name!r}. Run option 3 "
+            f"No breakout export found for {niche_name!r}. Run option 6 "
             f"(discover opportunities) first — that produces the "
             f"breakout export this option reads from."
         )
@@ -261,7 +261,7 @@ def build_from_top_n(niche_name: str, n: int = TARGET_COUNT,
     """
     Path B: take the top N from an existing export, drop Shorts, render.
 
-    source="breakout"  -> exports/<niche>/breakout.csv  (from option 3)
+    source="breakout"  -> exports/<niche>/breakout.csv  (from option 6)
     source="topic:<t>" -> topics/<t>/videos.csv         (from option 2)
     """
     if source.startswith("topic:"):
@@ -363,7 +363,7 @@ def write_curation_prompt(df: pd.DataFrame, niche_name: str,
         "## What to do",
         "",
         f"Paste everything below into your chat model. It will return "
-        f"video IDs, one per line. Bring those IDs to Option 6 → "
+        f"video IDs, one per line. Bring those IDs to Option 9 → "
         f"\"from curated list\" and the engine will render exactly those "
         f"{TARGET_COUNT} thumbnails as a contact sheet you can then hand "
         f"back to the same (or a multimodal) model for visual analysis.",

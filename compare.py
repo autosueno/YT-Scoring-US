@@ -150,7 +150,7 @@ def available_windows():
 
     This exists because preferred_keys() always picks the longest window
     per niche, silently. That is the right DEFAULT, but it also makes a
-    90d build permanently invisible to option 10 the moment a 365d build
+    90d build permanently invisible to option 11 the moment a 365d build
     of the same niche exists — there was no way to explicitly ask "show
     me my 90d niches" at all. This is what lets the caller find out
     whether that question is even worth asking (more than one window
@@ -303,7 +303,7 @@ def export_comparison(window_filter="365d", keys=None) -> dict:
     # name only, with the window stripped out. So comparing the SAME
     # niches at 90d produced the IDENTICAL filename to comparing them at
     # 365d, and the second comparison silently overwrote the first on
-    # disk. Invisible before option 10 could explicitly select a window;
+    # disk. Invisible before option 11 could explicitly select a window;
     # became trivial to trigger the moment it could. Fixed by folding the
     # window into the stem — a single shared window gets a clean suffix,
     # a mixed-window selection is named explicitly as such rather than

@@ -143,7 +143,7 @@ def print_niche_summary(meta: dict, df: pd.DataFrame, niche_key: str = None):
     Print a niche metadata summary and a sample of top videos, AND save it
     to exports/<niche>/<window>/summary/.
 
-    This was print-only for a long time — option 4's entire output lived
+    This was print-only for a long time — option 7's entire output lived
     in the terminal scrollback and vanished the moment the window closed,
     which is a real gap: this is the block that gets pasted into a chat
     or kept for a record, and it was the one export nothing preserved.

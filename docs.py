@@ -38,31 +38,31 @@ MENU_GROUPS = [
          "Collects the dataset everything else reads. ~13,000 units."),
         ("2",  "Grade a topic idea",               "cheap",
          "Is there a market for this specific idea? ~1,000 units."),
-        ("7",  "Search intent & keyword signals",  "free",
+        ("3",  "Search intent & keyword signals",  "free",
          "What people type, what Reddit is talking about. No YouTube quota."),
-        ("8",  "Tear down a channel",              "cheap",
+        ("4",  "Tear down a channel",              "cheap",
          "One creator's whole catalogue. ~13 units for 300 videos."),
-        ("13", "Compare two channels",             "cheap",
+        ("5", "Compare two channels",             "cheap",
          "Fetch two channels and diff them side by side."),
     ]),
     ("EXPLORE — reads what you already have", "free", [
-        ("3",  "Discover breakout opportunities",  "free",
+        ("6",  "Discover breakout opportunities",  "free",
          "Breakouts, clusters, SEO, calendars, AI prompts."),
-        ("4",  "Niche snapshot",                   "free",
+        ("7",  "Niche snapshot",                   "free",
          "Quick readout of what you have collected."),
-        ("5",  "Score a niche against your library","free",
+        ("8",  "Score a niche against your library","free",
          "Where does this niche rank among all your builds?"),
-        ("6",  "Thumbnail contact sheet",          "free",
+        ("9",  "Thumbnail contact sheet",          "free",
          "20 thumbnails tiled for visual study."),
-        ("9",  "What's moved since last build",    "free",
+        ("10",  "What's moved since last build",    "free",
          "Measured growth between two snapshots. Needs 2+ builds."),
-        ("10", "Compare all niches side by side",  "free",
+        ("11", "Compare all niches side by side",  "free",
          "Every build in one table, plus a scored verdict."),
     ]),
     ("MANAGE — maintain your data", "free", [
-        ("11", "Rebuild from cleaned data",        "free",
+        ("12", "Rebuild from cleaned data",        "free",
          "Re-derive everything from a cleaned videos.csv — no API calls."),
-        ("12", "Slice library to a shorter window","free",
+        ("13", "Slice library to a shorter window","free",
          "Turn 365d builds into 30d/90d slices, free, from data you have."),
         ("14", "Quit",                             None, ""),
     ]),
@@ -89,7 +89,7 @@ MODULE_DESCRIPTIONS = {
         "what": "Generates the AI prompt file you paste into Claude to get "
                 "video angle ideas. Takes the breakout clusters and formats "
                 "them as a research brief.",
-        "example": "After running option 3, open angles_prompt.md and paste "
+        "example": "After running option 6, open angles_prompt.md and paste "
                    "it into Claude to get 15 specific angle ideas for the niche.",
     },
     "baseline": {
@@ -103,7 +103,7 @@ MODULE_DESCRIPTIONS = {
         "what": "Produces a publishing calendar based on when the winning "
                 "videos in a niche were uploaded. Tells you which days and "
                 "times have historically produced the most breakouts.",
-        "example": "After running option 3, open the timing/ folder to see "
+        "example": "After running option 6, open the timing/ folder to see "
                    "the best days and hour-blocks to publish.",
     },
     "calibration": {
@@ -118,8 +118,8 @@ MODULE_DESCRIPTIONS = {
         "what": "Fetches and analyses a single channel's full video catalogue "
                 "— cadence, trajectory, breakout rate, title patterns, tags. "
                 "Also computes the diff between two channels.",
-        "example": "Option 8: tear down a channel you admire to see exactly "
-                   "how they operate. Option 13: compare two channels side "
+        "example": "Option 4: tear down a channel you admire to see exactly "
+                   "how they operate. Option 5: compare two channels side "
                    "by side to see where they diverge.",
     },
     "collector": {
@@ -133,7 +133,7 @@ MODULE_DESCRIPTIONS = {
         "what": "Loads all your built niches and lines them up in one table "
                 "so you can compare market size, spread, and scores at a "
                 "glance.",
-        "example": "Option 10: 'I have 10 niches built. Which one has the "
+        "example": "Option 11: 'I have 10 niches built. Which one has the "
                    "best spread for a newcomer?' — one command, one table.",
     },
     "config": {
@@ -154,17 +154,17 @@ MODULE_DESCRIPTIONS = {
     },
     "crossniche": {
         "what": "Grades a niche against all your other niches rather than "
-                "against itself. This is what makes option 5 useful — "
+                "against itself. This is what makes option 8 useful — "
                 "without it, every niche would score identically on demand "
                 "and supply.",
-        "example": "Option 5: 'Is ancient_history a strong niche or a weak "
+        "example": "Option 8: 'Is ancient_history a strong niche or a weak "
                    "one compared to the 9 others I've built?' — this module "
                    "does the pooled comparison.",
     },
     "dashboard": {
         "what": "Produces the market dashboard export — a one-page summary "
                 "of a niche's key numbers formatted for quick review.",
-        "example": "After running option 3, open the market/ folder for the "
+        "example": "After running option 6, open the market/ folder for the "
                    "dashboard.",
     },
     "discover": {
@@ -172,7 +172,7 @@ MODULE_DESCRIPTIONS = {
                 "candidate, groups them into topic clusters, and writes "
                 "everything out — the research MD, the discovery MD, the "
                 "clusters CSV, the JSON, the video table.",
-        "example": "Option 3. This is the module you interact with most, "
+        "example": "Option 6. This is the module you interact with most, "
                    "even if you never open it.",
     },
     "docs": {
@@ -233,7 +233,7 @@ MODULE_DESCRIPTIONS = {
                 "that adds calibration warnings when a number shouldn't "
                 "be fully trusted.",
         "example": "The formatted output you see in the terminal after "
-                   "running option 4 or 5 is this module rendering the "
+                   "running option 7 or 8 is this module rendering the "
                    "numbers.",
     },
     "seo": {
@@ -241,14 +241,14 @@ MODULE_DESCRIPTIONS = {
                 "most associated with breakout videos. Uses a "
                 "Wilson-score-corrected lift ranking so small-sample "
                 "noise doesn't dominate.",
-        "example": "After option 3, open packaging/seo.md to see which "
+        "example": "After option 6, open packaging/seo.md to see which "
                    "title words and tags the winners used more than average.",
     },
     "shorts": {
         "what": "Analyses the Shorts that were filtered out of the main "
                 "dataset. Finds which topics are busy in short form but "
                 "thin in long-form.",
-        "example": "After option 3, open shorts/shorts.md to see if any "
+        "example": "After option 6, open shorts/shorts.md to see if any "
                    "Shorts-heavy topics are underserved in full-length "
                    "format.",
     },
@@ -257,7 +257,7 @@ MODULE_DESCRIPTIONS = {
                 "autocomplete (what people are searching) and Reddit "
                 "(what communities are discussing). Produces the intent "
                 "gap report.",
-        "example": "Option 7: 'What are people searching that nobody has "
+        "example": "Option 3: 'What are people searching that nobody has "
                    "covered yet in this niche?' — this module finds those "
                    "gaps.",
     },
@@ -271,7 +271,7 @@ MODULE_DESCRIPTIONS = {
     "thumbnail_sheet": {
         "what": "Downloads thumbnails for the top breakout videos and "
                 "tiles them into a contact sheet image for visual study.",
-        "example": "Option 6: 'Show me what the winning thumbnails in this "
+        "example": "Option 9: 'Show me what the winning thumbnails in this "
                    "niche actually look like' — contact sheet of 20 images.",
     },
     "timing": {
@@ -279,14 +279,14 @@ MODULE_DESCRIPTIONS = {
                 "day-of-week combinations produced the most breakouts. "
                 "Uses shrinkage and bootstrap CIs so thin time slots "
                 "don't look falsely confident.",
-        "example": "After option 3, open timing/ to see the best hour "
+        "example": "After option 6, open timing/ to see the best hour "
                    "blocks to publish in this niche.",
     },
     "trends": {
         "what": "Compares two builds of the same niche taken at different "
                 "times to measure actual change — views gained, new "
                 "creators, rising and falling topics.",
-        "example": "Option 9: 'Has this niche actually grown since I last "
+        "example": "Option 10: 'Has this niche actually grown since I last "
                    "built it?' — trends does the before/after comparison.",
     },
     "verdict": {
@@ -294,7 +294,7 @@ MODULE_DESCRIPTIONS = {
                 "Reliability, Reward, and Effort into one score per niche, "
                 "then ranks and compares them. Produces the verdict HTML "
                 "report.",
-        "example": "Option 10 → verdict HTML: 'Of my 10 niches, which "
+        "example": "Option 11 → verdict HTML: 'Of my 10 niches, which "
                    "should I actually enter?' — verdict scores and ranks "
                    "them on the five dimensions.",
     },
@@ -310,7 +310,7 @@ WORKFLOWS = [
         "name": "Find what to make",
         "aim": "You have a niche. You need ideas that are genuinely "
                "under-served, not just ideas.",
-        "chain": [("key", "1", "build"), ("arrow",), ("key", "3", "discover"),
+        "chain": [("key", "1", "build"), ("arrow",), ("key", "6", "discover"),
                   ("arrow",), ("file", "breakout_research.md"), ("arrow",),
                   ("step", "paste into Claude"), ("arrow",),
                   ("key", "2", "grade the best 2-3")],
@@ -336,9 +336,9 @@ WORKFLOWS = [
         "name": "Decide which niche to enter",
         "aim": "You have several niches built. Which one should you "
                "actually commit to?",
-        "chain": [("key", "10", "compare"), ("arrow",),
+        "chain": [("key", "11", "compare"), ("arrow",),
                   ("file", "_verdict.html")],
-        "note": "Option 10 shows the table. At the end it offers a "
+        "note": "Option 11 shows the table. At the end it offers a "
                 "scored verdict — say yes. It measures **whether a small "
                 "channel ever wins here**, whether the catalogue compounds, "
                 "how concentrated the outcomes are, and what a hit is "
@@ -350,7 +350,7 @@ WORKFLOWS = [
         "name": "Cross-niche topic research",
         "aim": "You want title ideas that borrow proven vocabulary from "
                "adjacent niches, not just your main one.",
-        "chain": [("key", "3", "discover main niche"), ("arrow",),
+        "chain": [("key", "6", "discover main niche"), ("arrow",),
                   ("file", "breakout_discovery.md"), ("arrow",),
                   ("step", "repeat for 1-2 crossover niches"), ("arrow",),
                   ("step", "paste all 3 + your prompt into Claude")],
@@ -365,7 +365,7 @@ WORKFLOWS = [
         "name": "Clone a channel you admire",
         "aim": "One creator is doing exactly what you want to do. What "
                "exactly are they doing?",
-        "chain": [("key", "8", "teardown"), ("arrow",),
+        "chain": [("key", "4", "teardown"), ("arrow",),
                   ("file", "teardown.md"), ("arrow",),
                   ("file", "thumbnails/")],
         "note": "Cadence, growth trajectory, their own breakouts, title "
@@ -380,7 +380,7 @@ WORKFLOWS = [
         "name": "Compare two channels directly",
         "aim": "How do two creators in the same space actually differ — "
                "who's performing better, and why?",
-        "chain": [("key", "13", "compare two channels"), ("arrow",),
+        "chain": [("key", "5", "compare two channels"), ("arrow",),
                   ("file", "diff.md"), ("arrow",),
                   ("file", "diff.json")],
         "note": "Performance, cadence, format, trajectory, title language "
@@ -393,9 +393,9 @@ WORKFLOWS = [
         "name": "Learn how to package it",
         "aim": "Topic decided. Now: how do the winners title and "
                "thumbnail it?",
-        "chain": [("key", "3", "discover"), ("arrow",),
+        "chain": [("key", "6", "discover"), ("arrow",),
                   ("file", "packaging/seo.md"), ("arrow",),
-                  ("key", "6", "contact sheet")],
+                  ("key", "9", "contact sheet")],
         "note": "Tag lift, title word lift, hashtag patterns. "
                 "**Lift is correlational** — it shows what winners "
                 "did, not what caused the winning.",
@@ -405,7 +405,7 @@ WORKFLOWS = [
     {
         "name": "Research keywords",
         "aim": "What do people actually type into the search box?",
-        "chain": [("key", "7", "autocomplete"), ("arrow",),
+        "chain": [("key", "3", "autocomplete"), ("arrow",),
                   ("file", "intent_gaps.md"), ("arrow",),
                   ("step", "paste into Claude for triage")],
         "note": "Google autocomplete harvest — what gets suggested tells "
@@ -419,7 +419,7 @@ WORKFLOWS = [
     {
         "name": "Find what's coming",
         "aim": "Cover something before the wave reaches YouTube.",
-        "chain": [("key", "7", "Reddit signals"), ("arrow",),
+        "chain": [("key", "3", "Reddit signals"), ("arrow",),
                   ("file", "signals/reddit_signals.md")],
         "note": "Terms climbing on Reddit but thin on YouTube. "
                 "**Treat these as leads to check, not forecasts** — the "
@@ -432,11 +432,11 @@ WORKFLOWS = [
         "name": "Compare at a shorter window",
         "aim": "You have 365d builds. You want to see what the last "
                "90 days looks like across all of them at once.",
-        "chain": [("key", "12", "slice library to 90d"), ("arrow",),
-                  ("key", "10", "compare at 90d")],
+        "chain": [("key", "13", "slice library to 90d"), ("arrow",),
+                  ("key", "11", "compare at 90d")],
         "note": "Slicing is free — it re-filters the data you already "
-                "paid for. Option 12 does all your niches in one go. "
-                "Then option 10 will ask which window you want — "
+                "paid for. Option 13 does all your niches in one go. "
+                "Then option 11 will ask which window you want — "
                 "**type 90** (not 90d) and it compares the slices.",
         "cost": "Free · zero API calls",
         "tint": "free",
@@ -444,7 +444,7 @@ WORKFLOWS = [
     {
         "name": "See what actually moved",
         "aim": "Is this niche going anywhere since you last looked?",
-        "chain": [("key", "9", "trends"), ("arrow",),
+        "chain": [("key", "10", "trends"), ("arrow",),
                   ("file", "trends/since_last_build.md")],
         "note": "The only **measured** demand figure the engine produces. "
                 "Everywhere else views_per_hour is a lifetime average — "
@@ -457,7 +457,7 @@ WORKFLOWS = [
     {
         "name": "See which themes actually last",
         "aim": "Is this format durable, or was it a moment?",
-        "chain": [("key", "3", "discover"), ("arrow",),
+        "chain": [("key", "6", "discover"), ("arrow",),
                   ("file", "breakouts/by_era.md")],
         "note": "Breakouts split into 0-90d / 90-180d / 180-365d, each "
                 "ranked against its own contemporaries. A theme appearing "
@@ -469,7 +469,7 @@ WORKFLOWS = [
     {
         "name": "Find a repeatable format",
         "aim": "A series, not a one-off.",
-        "chain": [("key", "3", "discover"), ("arrow",),
+        "chain": [("key", "6", "discover"), ("arrow",),
                   ("file", "breakouts/breakout_clusters.csv"), ("arrow",),
                   ("step", "sort by unique_channels")],
         "note": "A cluster where seven or more separate channels succeeded "
@@ -494,11 +494,11 @@ LIMITS = [
     ("Measure current demand from one build",
      "A single snapshot cannot separate a video still climbing from one "
      "that stopped a year ago — views_per_hour is a lifetime average. "
-     "Option 9 fixes this, but only once you have two builds of the same "
+     "Option 10 fixes this, but only once you have two builds of the same "
      "niche to compare."),
     ("Measure search demand in the scoring",
      "Scores are built from how existing videos performed. A topic nobody "
-     "has covered looks identical to a topic nobody wants. Option 7 gets "
+     "has covered looks identical to a topic nobody wants. Option 3 gets "
      "close from the outside, but it doesn't feed the scoring yet."),
     ("See why a video worked",
      "Click-through rate, average view duration, retention and traffic "

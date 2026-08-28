@@ -185,7 +185,7 @@ def locate(directory: str, filename: str):
     being handed a niche name, so they cannot call named(). They used to
     join the bare filename directly — which silently stopped matching the
     moment files were namespaced, and made every built niche vanish from
-    option 10 while the data sat untouched on disk.
+    option 11 while the data sat untouched on disk.
 
     Returns the bare name if present, else the first file ending in
     "_<filename>", else None.
@@ -296,7 +296,7 @@ def resolve_niche(niche_name: str):
     already pointing at a window folder) it is returned unchanged. Given
     a bare name it finds the built windows beneath it and returns the
     LONGEST — a 365d build is the fuller measurement, and picking it by
-    default matches what option 10 already does.
+    default matches what option 11 already does.
 
     Returns the resolved key (e.g. 'space_exploration@365d'), or the
     original name untouched when nothing is found, so existing "not

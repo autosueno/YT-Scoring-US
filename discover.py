@@ -400,7 +400,7 @@ def build_clusters(scored_df: pd.DataFrame, max_clusters=None) -> list:
 
 def attach_search_demand(clusters, niche_name):
     """
-    Annotate clusters with search volume from a previous Option 7 run.
+    Annotate clusters with search volume from a previous Option 3 run.
 
     A SEPARATE column, never folded into cluster_score. Two reasons:
 
@@ -410,7 +410,7 @@ def attach_search_demand(clusters, niche_name):
        ("memory stocks to buy"). Nobody types "stocks buy". Lining the
        two up is good enough to raise a flag, not to move a number.
     2. Folding it in would make cluster_score depend on whether the user
-       happened to run Option 7 — the same dataset producing different
+       happened to run Option 3 — the same dataset producing different
        scores, with no visible cause.
 
     Returns the clusters unchanged when no intent file exists.
@@ -682,7 +682,7 @@ def _research_md(slim, clusters, niche_name, cov_note=None) -> str:
         clusters, has_search = attach_search_demand(clusters, niche_name)
         out.append("\n## Topic clusters (ranked by evidence-weighted breakout)\n")
         if has_search:
-            out.append("> The **search** column comes from your last Option 7 "
+            out.append("> The **search** column comes from your last Option 3 "
                        "autocomplete run. It is reported SEPARATELY and does "
                        "not affect cluster_score — cluster topics are title "
                        "fragments (\"stocks buy\") while autocomplete returns "
