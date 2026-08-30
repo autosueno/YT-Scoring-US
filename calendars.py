@@ -50,22 +50,31 @@ CELL_MIN_SAMPLES = max(4, TIMING_MIN_SAMPLES // 4)
 
 def _colour(index, n):
     """
-    Diverging red -> neutral -> green around 100 (the niche median).
+    Diverging coral -> glass-neutral -> emerald around 100 (niche median).
 
     Saturation scales with distance from 100, capped at +/-60 so one wild
     cell cannot flatten the rest of the grid. Low-n cells are returned
     faded so uncertainty is visible rather than implied.
     """
     if index is None or n == 0:
-        return "#1b1b1f", "#55555e", True
+        return "rgb(40,49,68)", "#5c6a83", True
     delta = max(-60.0, min(60.0, index - 100.0)) / 60.0
+    # Endpoints tuned for the dark-glass palette: neutral sits close to the
+    # card surface tone so an "average" cell recedes rather than reading
+    # as a third hard color; strong ends lean toward true emerald/coral
+    # rather than the desaturated red/green a linear RGB blend would give.
+    neutral = (34, 42, 58)
     if delta >= 0:
-        r, g, b = int(24 + 20 * (1 - delta)), int(70 + 130 * delta), int(50 + 30 * (1 - delta))
+        end = (33, 178, 122)   # emerald
     else:
-        d = -delta
-        r, g, b = int(70 + 150 * d), int(40 + 20 * (1 - d)), int(45 + 25 * (1 - d))
+        end = (214, 66, 84)    # coral
+        delta = -delta
+    r = int(neutral[0] + (end[0] - neutral[0]) * delta)
+    g = int(neutral[1] + (end[1] - neutral[1]) * delta)
+    b = int(neutral[2] + (end[2] - neutral[2]) * delta)
     weak = n < CELL_MIN_SAMPLES
-    return f"rgb({r},{g},{b})", "#e8e8ee" if not weak else "#9a9aa4", weak
+    fg = "#EDF1F7" if not weak else "#6B7A93"
+    return f"rgb({r},{g},{b})", fg, weak
 
 
 def _cell_style(index, n):
@@ -74,8 +83,8 @@ def _cell_style(index, n):
     if weak:
         # Hatching + transparency reads as "not enough data" at a glance.
         style += ("background-image:repeating-linear-gradient(45deg,"
-                  "rgba(255,255,255,.14) 0 3px,transparent 3px 6px);"
-                  "opacity:.55;")
+                  "rgba(255,255,255,.16) 0 3px,transparent 3px 6px);"
+                  "opacity:.75;")
     return style
 
 
@@ -147,43 +156,98 @@ def _day_of_month_grid(df):
 # ============================================================
 
 _CSS = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;
+700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
- body{background:#0f0f12;color:#e8e8ee;font-family:-apple-system,BlinkMacSystemFont,
-      'Segoe UI',Roboto,sans-serif;margin:0;padding:32px 36px;line-height:1.55}
- h1{font-size:23px;margin:0 0 6px;font-weight:700;letter-spacing:-.2px}
- h2{font-size:16px;margin:32px 0 12px;font-weight:650;color:#d4d4de}
- .sub{color:#96969f;font-size:13.5px;margin-bottom:20px;max-width:760px}
- .headline{margin:20px 0 28px;padding:20px 24px;background:linear-gradient(135deg,#173322,#0f2a1c);
-           border:1px solid #2a5c3c;border-radius:10px;max-width:760px}
- .headline .label{font-size:11.5px;text-transform:uppercase;letter-spacing:.6px;
-                   color:#7fd99a;font-weight:650;margin-bottom:6px}
- .headline .slot{font-size:26px;font-weight:750;color:#f2fff5;letter-spacing:-.3px}
- .headline .stats{font-size:13px;color:#9fcfae;margin-top:6px}
- .headline .also{margin-top:14px;padding-top:14px;border-top:1px solid #2a5c3c22;
-                  font-size:12.5px;color:#8fae98}
- .headline .also b{color:#c8e6d0}
- table{border-collapse:separate;border-spacing:3px}
- th{font-size:11px;color:#96969f;font-weight:650;padding:4px;text-align:center}
- th.day{text-align:right;padding-right:11px;min-width:80px;font-size:11.5px}
- td{width:34px;height:30px;text-align:center;font-size:11px;border-radius:5px;
-    font-variant-numeric:tabular-nums;font-weight:600;cursor:default}
- td.dom{width:66px;height:56px;font-size:12px;vertical-align:top;padding:5px 6px;
-        text-align:left;border-radius:7px}
- .dnum{font-size:14px;font-weight:750;display:block;margin-bottom:1px}
- .legend{margin-top:26px;font-size:12.5px;color:#96969f;display:flex;
-          align-items:center;flex-wrap:wrap;gap:2px 4px}
- .sw{display:inline-block;width:16px;height:16px;border-radius:4px;
-     vertical-align:-3px;margin:0 6px 0 16px}
- .note{margin-top:26px;padding:16px 19px;background:#17171c;border-left:3px solid #3a3a44;
-       border-radius:7px;font-size:13px;color:#aeaeb8;max-width:760px}
- .note b{color:#dcdce4}
+ :root{
+   --bg-1:#0A1120; --bg-2:#101B30; --glow:rgba(76,141,255,.16);
+   --card:rgba(255,255,255,.045); --card-hi:rgba(255,255,255,.07);
+   --line:rgba(255,255,255,.09); --line-soft:rgba(255,255,255,.055);
+   --ink:#EDF1F7; --ink-2:#9AA7BC; --ink-3:#67748C;
+   --accent:#4C8DFF; --accent-soft:rgba(76,141,255,.14);
+   --good:#2ECF96; --good-soft:rgba(46,207,150,.14);
+   --bad:#F0576B; --bad-soft:rgba(240,87,107,.14);
+   --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+   --mono:'IBM Plex Mono',monospace;
+ }
+ *{box-sizing:border-box}
+ body{margin:0;padding:0;color:var(--ink);font-family:var(--font);
+      line-height:1.55;
+      background:
+        radial-gradient(900px 500px at 88% 8%,var(--glow),transparent 60%),
+        radial-gradient(700px 420px at 6% 96%,rgba(46,207,150,.08),transparent 60%),
+        linear-gradient(160deg,var(--bg-1),var(--bg-2));
+      background-attachment:fixed;min-height:100vh}
+ .page{max-width:1180px;margin:0 auto;padding:clamp(20px,4vw,48px)}
+ .topbar{display:flex;align-items:flex-start;justify-content:space-between;
+         gap:20px;flex-wrap:wrap;margin:0 0 26px}
+ h1{font-size:24px;margin:0 0 6px;font-weight:800;letter-spacing:-.02em}
+ .sub{color:var(--ink-2);font-size:13.5px;margin:0;max-width:640px}
+ .stats{display:flex;gap:8px;flex-wrap:wrap}
+ .stat-pill{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);
+            background:var(--card);border:1px solid var(--line);
+            border-radius:20px;padding:7px 14px;white-space:nowrap}
+ .stat-pill b{color:var(--ink);font-weight:600}
+ h2{font-size:15px;margin:34px 0 13px;font-weight:700;color:var(--ink);
+    letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+ h2::before{content:"";width:3px;height:15px;border-radius:2px;
+            background:var(--accent)}
+ .card{background:var(--card);border:1px solid var(--line);
+       border-radius:18px;padding:clamp(16px,2.4vw,22px);margin:0 0 4px}
+ .headline{margin:18px 0 30px;padding:22px 26px;position:relative;
+           background:var(--card-hi);border:1px solid var(--line);
+           border-radius:18px;max-width:760px;overflow:hidden}
+ .headline::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;
+                   background:var(--good)}
+ .headline .label{font-size:11px;text-transform:uppercase;letter-spacing:.1em;
+                  color:var(--good);font-weight:700;margin-bottom:8px}
+ .headline .slot{font-size:27px;font-weight:800;color:var(--ink);
+                 letter-spacing:-.02em}
+ .headline .stats-line{font-size:13px;color:var(--ink-2);margin-top:7px;
+                       font-family:var(--mono)}
+ .headline .also{margin-top:15px;padding-top:15px;
+                 border-top:1px solid var(--line-soft);
+                 font-size:12.5px;color:var(--ink-2)}
+ .headline .also b{color:var(--ink);font-weight:600}
+ table{border-collapse:separate;border-spacing:4px}
+ th{font-size:10.5px;color:var(--ink-3);font-weight:700;padding:3px;
+    text-align:center;text-transform:uppercase;letter-spacing:.04em}
+ th.day{text-align:right;padding-right:12px;min-width:82px;font-size:12px;
+        color:var(--ink-2);text-transform:none;letter-spacing:0}
+ td{width:34px;height:30px;text-align:center;font-size:11px;border-radius:8px;
+    font-variant-numeric:tabular-nums;font-weight:700;cursor:default;
+    font-family:var(--mono);box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+ td.dom{width:76px;height:64px;font-size:12px;vertical-align:top;
+        padding:8px 9px;text-align:left;border-radius:12px}
+ .dnum{font-size:15px;font-weight:800;display:block;margin-bottom:3px;
+       font-family:var(--font)}
+ .legend{margin-top:28px;padding:16px 20px;background:var(--card);
+         border:1px solid var(--line);border-radius:14px;font-size:12.5px;
+         color:var(--ink-2);display:flex;align-items:center;flex-wrap:wrap;
+         gap:6px 5px}
+ .sw{display:inline-block;width:14px;height:14px;border-radius:5px;
+     vertical-align:-2px;margin:0 6px 0 16px;
+     box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+ .sw:first-of-type{margin-left:0}
+ .note{margin-top:22px;padding:18px 22px;background:var(--card);
+       border:1px solid var(--line);border-left:3px solid var(--accent);
+       border-radius:14px;font-size:13px;color:var(--ink-2);max-width:760px}
+ .note b{color:var(--ink);font-weight:600}
  .note div+div{margin-top:12px}
- code{background:#1e1e25;padding:2px 6px;border-radius:4px;font-size:12px}
- .rank-table{border-collapse:collapse;max-width:640px;margin-top:10px}
- .rank-table th{text-align:left;font-size:11.5px;padding:6px 14px 6px 0;color:#96969f;
-                 border-bottom:1px solid #2a2a32}
- .rank-table td{padding:8px 14px 8px 0;font-size:13.5px;border-bottom:1px solid #1e1e25}
- .rank-table td.n{color:#8a8a94}
+ code{background:rgba(255,255,255,.08);padding:2px 7px;border-radius:5px;
+      font-size:12px;font-family:var(--mono)}
+ .rank-table{border-collapse:collapse;max-width:640px;margin-top:6px}
+ .rank-table th{text-align:left;font-size:11px;padding:9px 16px 9px 0;
+                text-transform:none;letter-spacing:0}
+ .rank-table td{padding:11px 16px 11px 0;font-size:13.5px;
+                border-bottom:1px solid var(--line-soft);font-weight:500;
+                white-space:nowrap}
+ .rank-table tr:last-child td{border-bottom:none}
+ .rank-table td.n{color:var(--ink-3);font-family:var(--mono);font-size:12.5px}
+ footer.gen{margin-top:34px;font-family:var(--mono);font-size:10.5px;
+            color:var(--ink-3)}
 </style>
 """
 
@@ -191,16 +255,16 @@ _CSS = """
 def _legend():
     return f"""
 <div class="legend">
-  <span class="sw" style="background:rgb(24,200,50)"></span>strong
-  <span class="sw" style="background:rgb(34,110,68)"></span>above average
-  <span class="sw" style="background:rgb(44,60,70)"></span>average
-  <span class="sw" style="background:rgb(160,48,58)"></span>below average
-  <span class="sw" style="background:rgb(220,40,45)"></span>weak
-  <span class="sw" style="background:#1b1b1f;background-image:repeating-linear-gradient(45deg,
-        rgba(255,255,255,.14) 0 3px,transparent 3px 6px);opacity:.55"></span>
+  <span class="sw" style="background:rgb(33,178,122)"></span>strong
+  <span class="sw" style="background:rgb(34,113,94)"></span>above average
+  <span class="sw" style="background:rgb(34,42,58)"></span>average
+  <span class="sw" style="background:rgb(140,58,66)"></span>below average
+  <span class="sw" style="background:rgb(214,66,84)"></span>weak
+  <span class="sw" style="background:rgb(40,49,68);background-image:repeating-linear-gradient(45deg,
+        rgba(255,255,255,.16) 0 3px,transparent 3px 6px);opacity:.75"></span>
   fewer than {CELL_MIN_SAMPLES} videos — not enough data
 </div>
-<div class="sub" style="margin-top:6px">Colour is the SHRUNK index — a cell
+<div class="sub" style="margin-top:10px">Colour is the SHRUNK index — a cell
 with few videos is pulled toward neutral (100) rather than shown at its raw
 extreme, so a 2-video fluke can't paint the strongest colour on the grid.
 Hover any cell to see both the shrunk and raw numbers.</div>"""
@@ -219,7 +283,7 @@ def _headline(joint, tier_label=""):
     html_out = [f"<div class='headline'><div class='label'>{html.escape(prefix)}</div>",
                f"<div class='slot'>{top['weekday']} "
                f"{timing_mod._fmt_block(top['hour_block'])}</div>",
-               f"<div class='stats'>Index {top['index']} "
+               f"<div class='stats-line'>Index {top['index']} "
                f"({top['videos']} videos){ci}</div>"]
     if len(joint) > 1:
         others = " · ".join(f"<b>{s['weekday']} {timing_mod._fmt_block(s['hour_block'])}</b>"
@@ -274,12 +338,19 @@ def export_week_calendar(df, niche_name, tiers=None, out_dir=None) -> str:
     tz = df["_tz_used"].iloc[0] if "_tz_used" in df.columns and len(df) else "UTC"
     joint = timing_mod.best_joint_slots(df, top_n=5)
 
-    parts = [_CSS,
-             f"<h1>{html.escape(niche_name)} — weekly publishing calendar</h1>",
-             f"<div class='sub'>Times in <b>{tz}</b> (audience timezone). "
-             f"{len(df):,} videos. Index 100 = niche median.</div>",
+    parts = [_CSS, "<div class='page'>",
+             "<div class='topbar'><div>",
+             f"<h1>{html.escape(niche_name)}</h1>",
+             f"<p class='sub'>Weekly publishing calendar — when videos in "
+             f"this niche actually beat their own baseline.</p></div>",
+             "<div class='stats'>"
+             f"<span class='stat-pill'>tz <b>{html.escape(str(tz))}</b></span>"
+             f"<span class='stat-pill'><b>{len(df):,}</b> videos</span>"
+             f"<span class='stat-pill'>index <b>100</b> = median</span>"
+             "</div></div>",
              _headline(joint),
-             "<h2>Top 5 slots, ranked</h2>", _rank_table(joint),
+             "<h2>Top 5 slots, ranked</h2>",
+             f"<div class='card'>{_rank_table(joint)}</div>",
              "<h2>Full grid — all creators</h2>", _week_table(df, "all creators")]
 
     if tiers and "channel_subs" in df.columns:
@@ -300,24 +371,28 @@ def export_week_calendar(df, niche_name, tiers=None, out_dir=None) -> str:
 
     parts.append(_legend())
     parts.append(
-        "<div class='note'><b>How to read this.</b> Colour comes from "
+        "<div class='note'><div><b>How to read this.</b> Colour comes from "
         "<code>outlier_ratio</code> — each video measured against its own "
         "channel's average — so green means videos published in that slot "
-        "beat their own baseline, not that big channels post there.<br><br>"
-        "<b>A pale striped cell is not a bad time.</b> It means too few "
+        "beat their own baseline, not that big channels post there.</div>"
+        "<div><b>A pale striped cell is not a bad time.</b> It means too few "
         "videos landed there to judge. With 168 cells, thin coverage is "
-        "normal; trust the broad bands, not individual squares.<br><br>"
-        "<b>Biggest caveat:</b> this shows how already-published videos "
+        "normal; trust the broad bands, not individual squares.</div>"
+        "<div><b>Biggest caveat:</b> this shows how already-published videos "
         "did. It cannot tell you what the same video would have done an "
         "hour later. And if you have few subscribers, publish time is one "
         "of the weakest levers you have — topic, title and thumbnail matter "
-        "far more.</div>")
+        "far more.</div></div>")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    parts.append(f"<footer class='gen'>Generated {ts}</footer>")
+    parts.append("</div>")
 
     out_dir = out_dir or export_dir_for(EXPORTS_DIR, niche_name, "timing")
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir, _named(niche_name, "calendar_week.html"))
     with open(path, "w", encoding="utf-8") as f:
         f.write("<!doctype html><html><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 f"<title>{html.escape(niche_name)} — weekly calendar</title>"
                 "</head><body>" + "\n".join(parts) + "</body></html>")
     return path
@@ -339,13 +414,19 @@ def export_month_calendar(df, niche_name, event_info=None) -> str:
     the highlighted days against a real calendar before planning around them.
     """
     grid = _day_of_month_grid(df)
-    parts = [_CSS,
-             f"<h1>{html.escape(niche_name)} — monthly pattern calendar</h1>",
-             f"<div class='sub'>Median performance by day of month across "
-             f"{len(df):,} videos. Index 100 = niche median.</div>"]
+    parts = [_CSS, "<div class='page'>",
+             "<div class='topbar'><div>",
+             f"<h1>{html.escape(niche_name)}</h1>",
+             "<p class='sub'>Monthly pattern calendar — day-of-month "
+             "performance, pooled across every month in the dataset.</p>"
+             "</div>",
+             "<div class='stats'>"
+             f"<span class='stat-pill'><b>{len(df):,}</b> videos</span>"
+             f"<span class='stat-pill'>index <b>100</b> = median</span>"
+             "</div></div>"]
 
     if not grid:
-        parts.append("<p style='color:#8b8b96'>Not enough data.</p>")
+        parts.append("<p class='sub'>Not enough data.</p>")
     else:
         rows = ["<table>"]
         for week_start in range(1, 32, 7):
@@ -371,41 +452,45 @@ def export_month_calendar(df, niche_name, event_info=None) -> str:
             best = ", ".join(f"<b>{d}</b> ({grid[d]['index']:.0f})" for d in ranked[:5])
             worst = ", ".join(f"{d} ({grid[d]['index']:.0f})" for d in ranked[-5:])
             parts.append(f"<h2>Strongest days of the month</h2>"
-                         f"<div class='sub'>{best}</div>"
-                         f"<h2>Weakest days</h2><div class='sub'>{worst}</div>")
+                         f"<div class='card sub'>{best}</div>"
+                         f"<h2>Weakest days</h2>"
+                         f"<div class='card sub'>{worst}</div>")
 
     if event_info and event_info.get("concentration_ratio"):
         parts.append("<h2>Event concentration</h2>")
         parts.append(
-            f"<div class='sub'>Top videos are "
-            f"<b>{event_info['concentration_ratio']}x</b> more concentrated "
-            f"on the busiest dates than an even spread predicts — "
-            f"<i>{html.escape(event_info['reading'])}</i>.</div>")
+            f"<div class='card sub'>Top videos are "
+            f"<b style='color:var(--ink)'>{event_info['concentration_ratio']}x</b> "
+            f"more concentrated on the busiest dates than an even spread "
+            f"predicts — <i>{html.escape(event_info['reading'])}</i>.</div>")
         if event_info.get("busiest_days"):
             items = "".join(f"<li>{html.escape(str(b['date']))} — "
                             f"{b['top_videos']} top videos</li>"
                             for b in event_info["busiest_days"])
-            parts.append(f"<ul class='sub'>{items}</ul>")
+            parts.append(f"<ul class='card sub'>{items}</ul>")
 
     parts.append(_legend())
     parts.append(
-        "<div class='note'><b>This is not an economic calendar.</b> The "
+        "<div class='note'><div><b>This is not an economic calendar.</b> The "
         "engine has no feed of CPI, PPI, FOMC or jobs-report dates. What "
         "you are seeing is how videos published on each calendar day "
         "actually performed, pooled across every month in the dataset. In "
         "finance those peaks often line up with scheduled releases — but "
-        "confirm against a real calendar before planning around them."
-        "<br><br><b>Two different strategies.</b> A high-index day usually "
+        "confirm against a real calendar before planning around them.</div>"
+        "<div><b>Two different strategies.</b> A high-index day usually "
         "means event-driven demand: publish same-day, expect a spike, "
         "expect fast decay. Evergreen content ignores the calendar and "
-        "compounds instead. Both work; they are not the same game."
-        "<br><br>Generated "
-        f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}.</div>")
+        "compounds instead. Both work; they are not the same game.</div>"
+        "</div>")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    parts.append(f"<footer class='gen'>Generated {ts}</footer>")
+    parts.append("</div>")
 
     out_dir = export_dir_for(EXPORTS_DIR, niche_name, "timing")
     path = os.path.join(out_dir, _named(niche_name, "calendar_month.html"))
     with open(path, "w", encoding="utf-8") as f:
         f.write("<!doctype html><html><head><meta charset='utf-8'>"
+                "<meta name='viewport' content='width=device-width, initial-scale=1'>"
                 f"<title>{html.escape(niche_name)} — monthly calendar</title>"
                 "</head><body>" + "\n".join(parts) + "</body></html>")
     return path

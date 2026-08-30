@@ -1,298 +1,333 @@
 <!doctype html><html lang='en'><head><meta charset='utf-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
-<title>YouTube Market Intelligence Engine</title>
+<title>YouTube Market Intelligence Engine — route map</title>
 <link rel='preconnect' href='https://fonts.googleapis.com'>
 <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
-<link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap' rel='stylesheet'>
+<link href='https://fonts.googleapis.com/css2?family=Archivo+Expanded:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap' rel='stylesheet'>
 <style>
 :root{
-  --mint:#C9E4D4; --butter:#F7E5B7; --apricot:#F8D3C0;
-  --lilac:#DCD3EC; --sky:#C6DCEB; --lavender:#EBE8F4;
-  --paper:#F2F4F7; --card:#FFF; --ink:#2E3440; --ink-2:#5A6474;
-  --ink-3:#8B94A3; --rule:#E1E6ED;
-  --display:'Space Grotesk',system-ui,sans-serif;
-  --body:'Inter',system-ui,sans-serif; --mono:'IBM Plex Mono',monospace;
+  --paper:#EEF0E7; --grid:#CDD1BE; --card:#FBFBF6; --card-line:#DEDFD1;
+  --ink:#20303A; --ink-2:#54646C; --ink-3:#8A9089;
+  --water:#3E7A82; --water-soft:#DCEAE9;
+  --lowland:#75894C; --lowland-soft:#E6EAD9;
+  --highland:#B8452F; --highland-soft:#F3DED4;
+  --display:'Archivo Expanded',system-ui,sans-serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',monospace;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);
-  font-size:16px;line-height:1.6;padding:clamp(24px,5vw,64px) clamp(16px,5vw,48px)}
-.wrap{max-width:1040px;margin:0 auto}
-.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--ink-3);margin:0 0 14px}
-h1{font-family:var(--display);font-weight:700;font-size:clamp(28px,5vw,48px);
-  line-height:1.06;letter-spacing:-.025em;margin:0 0 16px;max-width:18ch}
-h2.section-head{font-family:var(--display);font-weight:700;font-size:22px;
-  letter-spacing:-.015em;margin:clamp(40px,6vw,64px) 0 20px;color:var(--ink)}
-.standfirst{font-size:clamp(15px,2.2vw,18px);color:var(--ink-2);max-width:56ch;margin:0}
-/* ---- menu ---- */
-.menu{background:var(--card);border:1px solid var(--rule);border-radius:14px;
-  padding:clamp(18px,3vw,26px);margin:clamp(28px,5vw,44px) 0}
-.menu-title{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--ink-3);margin:0 0 20px}
-.menu-group{margin:0 0 22px}
-.menu-group:last-child{margin:0}
-.menu-group-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--ink-3);margin:0 0 10px;
-  padding-bottom:6px;border-bottom:1px solid var(--rule)}
-.menu-grid{display:grid;gap:7px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
-.menu-row{display:flex;align-items:center;gap:11px;font-size:14px}
-.menu-row span.label{color:var(--ink-2)}
-.key{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:7px;
-  background:var(--sky);border:1px solid rgba(46,52,64,.13);
-  box-shadow:0 1.5px 0 rgba(46,52,64,.16);font-family:var(--mono);
-  font-weight:600;font-size:13px;color:var(--ink)}
-.key.free{background:var(--mint)} .key.cheap{background:var(--butter)}
-.key.dear{background:var(--apricot)} .key.api{background:var(--butter)}
-.key.ghost{background:var(--card);color:var(--ink-3)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;
-  margin:0 0 clamp(28px,5vw,40px);font-size:13px;color:var(--ink-2)}
-.legend b{display:inline-block;width:14px;height:14px;border-radius:4px;
-  vertical-align:-2px;margin-right:6px;border:1px solid rgba(46,52,64,.12)}
-/* ---- modules ---- */
-.modules{display:grid;gap:12px;margin:0 0 clamp(28px,5vw,44px)}
-@media(min-width:640px){.modules{grid-template-columns:1fr 1fr}}
-@media(min-width:900px){.modules{grid-template-columns:1fr 1fr 1fr}}
-.mod{background:var(--card);border:1px solid var(--rule);border-radius:12px;
-  padding:16px 18px}
-.mod-name{font-family:var(--mono);font-weight:600;font-size:13px;
-  color:var(--ink);margin:0 0 6px}
-.mod-what{font-size:13.5px;color:var(--ink-2);margin:0 0 8px;line-height:1.5}
-.mod-eg{font-size:12.5px;color:var(--ink-3);font-style:italic;
-  border-top:1px solid var(--rule);padding-top:8px;margin:0}
-/* ---- workflows ---- */
-.jobs{display:grid;gap:16px}
-@media(min-width:820px){.jobs{grid-template-columns:1fr 1fr}}
-.job{background:var(--card);border:1px solid var(--rule);border-radius:14px;
-  padding:clamp(20px,3vw,26px);position:relative;overflow:hidden;
-  transition:transform .18s ease,box-shadow .18s ease}
-.job::before{content:"";position:absolute;inset:0 auto 0 0;width:5px;
-  background:var(--tint,var(--sky))}
-.job:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(46,52,64,.07)}
-.job.wide{grid-column:1/-1}
-.job h2{font-family:var(--display);font-weight:700;font-size:19px;
-  letter-spacing:-.015em;margin:0 0 4px}
-.aim{color:var(--ink-2);font-size:14px;margin:0 0 16px;max-width:52ch}
-.chain{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px;
-  border-radius:10px;background:var(--paper);margin:0 0 14px}
-.chain .arrow{color:var(--ink-3);font-size:13px;flex:none}
-.chain .step{font-family:var(--mono);font-size:12px;color:var(--ink-2);
-  display:flex;align-items:center;gap:6px}
-.chain .file{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);
-  background:var(--card);border:1px solid var(--rule);padding:3px 8px;border-radius:6px}
-.note{font-size:13.5px;color:var(--ink-2);margin:0 0 14px;max-width:54ch}
-.note strong{color:var(--ink);font-weight:600}
-.cost{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
-  border-top:1px solid var(--rule);padding-top:12px;margin:0}
-/* ---- limits ---- */
-.limits{background:var(--lilac);border-radius:14px;padding:clamp(22px,3.5vw,30px);
-  margin-top:clamp(28px,5vw,44px)}
-.limits h2{font-family:var(--display);font-weight:700;font-size:20px;
-  margin:0 0 6px;letter-spacing:-.015em}
-.limits p.lead{margin:0 0 18px;color:#4B4460;font-size:14px;max-width:58ch}
-.limits dl{margin:0;display:grid;gap:14px}
-.limits dt{font-weight:600;font-size:14px;color:#332E45}
-.limits dd{margin:3px 0 0;font-size:13.5px;color:#54506B;max-width:62ch}
-footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
-  border-top:1px solid var(--rule);font-family:var(--mono);font-size:11px;
-  color:var(--ink-3);display:flex;flex-wrap:wrap;gap:6px 18px}
+  font-size:16px;line-height:1.6;padding:clamp(20px,5vw,60px) clamp(14px,5vw,44px);
+  background-image:repeating-linear-gradient(115deg,rgba(32,48,58,.05) 0,
+    rgba(32,48,58,.05) 1px,transparent 1px,transparent 64px);}
+.wrap{max-width:1060px;margin:0 auto}
+a{color:inherit}
+/* ---- header ---- */
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 14px;
+  display:flex;align-items:center;gap:10px}
+.eyebrow::before{content:"";width:22px;height:1px;background:var(--ink-3)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(28px,4.6vw,44px);
+  line-height:1.08;letter-spacing:-.01em;margin:0 0 16px;max-width:19ch}
+.standfirst{font-size:clamp(14.5px,2vw,17px);color:var(--ink-2);max-width:58ch;margin:0 0 clamp(24px,4vw,34px)}
+h2.section-head{font-family:var(--display);font-weight:700;font-size:20px;
+  letter-spacing:-.01em;margin:clamp(38px,6vw,58px) 0 6px;color:var(--ink);
+  display:flex;align-items:baseline;gap:10px}
+h2.section-head .count{font-family:var(--mono);font-weight:400;font-size:12px;
+  color:var(--ink-3)}
+p.section-sub{font-size:13.5px;color:var(--ink-2);margin:0 0 22px;max-width:56ch}
+/* ---- terrain legend ---- */
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 clamp(24px,4vw,36px)}
+.legend-item{display:flex;align-items:center;gap:9px;background:var(--card);
+  border:1px solid var(--card-line);border-radius:10px;padding:9px 14px;
+  font-size:12.5px;color:var(--ink-2);flex:1 1 220px}
+.legend-swatch{flex:none;width:12px;height:12px;border-radius:3px}
+.legend-swatch.water{background:var(--water)}
+.legend-swatch.lowland{background:var(--lowland)}
+.legend-swatch.highland{background:var(--highland)}
+.legend-item b{color:var(--ink);font-weight:600}
+/* ---- menu index ---- */
+.index{background:var(--card);border:1px solid var(--card-line);border-radius:14px;
+  padding:clamp(16px,3vw,24px);margin:0 0 clamp(28px,4.5vw,40px)}
+.index-title{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 18px;
+  display:flex;align-items:center;gap:8px}
+.index-title::after{content:"";flex:1;height:1px;background:var(--card-line)}
+.region{margin:0 0 20px}
+.region:last-child{margin:0}
+.region-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 9px}
+.region-grid{display:grid;gap:5px 20px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+.region-row{display:flex;align-items:center;gap:11px;font-size:13.5px;
+  padding:3px 0;border-bottom:1px dotted var(--card-line)}
+.region-row .waypoint{flex:none}
+.region-row .label{color:var(--ink-2)}
+.waypoint{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;
+  font-family:var(--mono);font-weight:600;font-size:11px;border:1.5px solid transparent}
+.waypoint.water{background:var(--water-soft);color:var(--water);border-color:var(--water)}
+.waypoint.lowland{background:var(--lowland-soft);color:var(--lowland);border-color:var(--lowland)}
+.waypoint.highland{background:var(--highland-soft);color:var(--highland);border-color:var(--highland)}
+.waypoint.ghost{background:var(--card);color:var(--ink-2);border-color:var(--ink-3)}
+/* ---- routes (workflow cards) ---- */
+.routes{display:grid;gap:16px;margin:0 0 clamp(28px,4.5vw,40px)}
+@media(min-width:840px){.routes{grid-template-columns:1fr 1fr}}
+.route{background:var(--card);border:1px solid var(--card-line);border-radius:14px;
+  padding:clamp(18px,3vw,24px);position:relative;overflow:hidden}
+.route::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;
+  background:var(--tint,var(--water))}
+.route.wide{grid-column:1/-1}
+.route h3{font-family:var(--display);font-weight:700;font-size:18px;
+  letter-spacing:-.01em;margin:0 0 5px;color:var(--ink)}
+.route .aim{color:var(--ink-2);font-size:13.5px;margin:0 0 16px;max-width:54ch}
+.trail{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0 0 14px;
+  padding:12px 4px;border-radius:10px}
+.trail .node{display:flex;align-items:center;gap:7px;flex:none}
+.trail .dash{flex:1 1 22px;min-width:16px;height:0;border-top:2px dashed var(--card-line);
+  margin:0 6px;align-self:center}
+.trail .node-key{font-family:var(--mono);font-size:12px;color:var(--ink-2);
+  display:flex;align-items:center;gap:6px;white-space:nowrap}
+.trail .node-file{font-family:var(--mono);font-size:11px;color:var(--ink-2);
+  background:var(--paper);border:1px dashed var(--card-line);padding:3px 9px;
+  border-radius:6px;white-space:nowrap}
+.trail .node-step{font-family:var(--body);font-size:12px;color:var(--ink-2);
+  background:var(--paper);border:1px solid var(--card-line);padding:3px 10px;
+  border-radius:20px;white-space:nowrap}
+.route .note{font-size:13.5px;color:var(--ink-2);margin:0 0 14px;max-width:56ch}
+.route .note strong{color:var(--ink);font-weight:600}
+.route .cost{font-family:var(--mono);font-size:11px;color:var(--ink-3);
+  border-top:1px solid var(--card-line);padding-top:11px;margin:0;
+  display:flex;align-items:center;justify-content:space-between;gap:10px}
+.route .cost .badge{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+  padding:2px 8px;border-radius:20px}
+.route .cost .badge.water{background:var(--water-soft);color:var(--water)}
+.route .cost .badge.lowland{background:var(--lowland-soft);color:var(--lowland)}
+.route .cost .badge.highland{background:var(--highland-soft);color:var(--highland)}
+/* ---- off the map (limits) ---- */
+.limits{border:1px dashed var(--ink-3);border-radius:14px;
+  padding:clamp(20px,3.5vw,28px);margin-top:clamp(28px,4.5vw,40px)}
+.limits h2{font-family:var(--display);font-weight:700;font-size:19px;
+  margin:0 0 6px;letter-spacing:-.01em}
+.limits p.lead{margin:0 0 18px;color:var(--ink-2);font-size:13.5px;max-width:58ch}
+.limits dl{margin:0;display:grid;gap:13px}
+.limits dt{font-weight:600;font-size:13.5px;color:var(--ink)}
+.limits dt::before{content:"— "; color:var(--ink-3)}
+.limits dd{margin:2px 0 0 14px;font-size:13px;color:var(--ink-2);max-width:62ch}
+footer{margin-top:clamp(28px,4.5vw,44px);padding-top:18px;
+  border-top:1px solid var(--card-line);font-family:var(--mono);font-size:10.5px;
+  color:var(--ink-3);display:flex;flex-wrap:wrap;gap:5px 16px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Fallback for renderers without flex/grid gap support (old WebKit,
+   some PDF/email renderers) — modern browsers already get correct
+   spacing from gap above, so this is additive insurance, not a
+   replacement, and only fires where gap itself is unsupported. */
+@supports not (gap:10px){
+  .legend-item>*:not(:last-child),
+  .region-row>*:not(:last-child),
+  .trail .node>*:not(:last-child),
+  .index-title{margin-right:8px}
+  footer span{margin-right:16px}
+  h2.section-head .count{margin-left:10px}
+}
 </style></head><body><div class='wrap'>
-<header><p class='eyebrow'>YouTube Market Intelligence Engine</p>
-<h1>What each piece does, and how to chain them.</h1>
-<p class='standfirst'>30 modules. 13 menu options. On their own they don't do much — the value is in chaining them. Everything below is a chain, priced so you can see what it costs before you start.</p></header>
-<section class='menu'><p class='menu-title'>py main.py</p>
-<div class='menu-group'><p class='menu-group-label'>BUILD — uses your API quota</p><div class='menu-grid'>
-<div class='menu-row'><span class='key dear'>1</span><span class='label'>Build a niche database</span></div>
-<div class='menu-row'><span class='key cheap'>2</span><span class='label'>Grade a topic idea</span></div>
-<div class='menu-row'><span class='key free'>3</span><span class='label'>Search intent & keyword signals</span></div>
-<div class='menu-row'><span class='key cheap'>4</span><span class='label'>Tear down a channel</span></div>
-<div class='menu-row'><span class='key cheap'>5</span><span class='label'>Compare two channels</span></div>
+<header><p class='eyebrow'>py main.py — route map</p>
+<h1>Where you want to go, and the fastest way there.</h1>
+<p class='standfirst'>16 menu options, one job each. Below: the routes that chain them into an actual answer, priced by terrain so you know the cost before you set out.</p></header>
+<div class='legend'><div class='legend-item'><span class='legend-swatch water'></span><span><b>Water</b> — free, reads what's already on disk</span></div><div class='legend-item'><span class='legend-swatch lowland'></span><span><b>Lowland</b> — cheap, a few hundred to ~1,000 units</span></div><div class='legend-item'><span class='legend-swatch highland'></span><span><b>Highland</b> — dear, ~13,000 units to build fresh</span></div></div>
+<div class='index'><p class='index-title'>Menu index</p>
+<div class='region'><p class='region-label'>BUILD — uses your API quota</p><div class='region-grid'>
+<div class='region-row'><span class='waypoint highland'>1</span><span class='label'>Build a niche database</span></div>
+<div class='region-row'><span class='waypoint lowland'>2</span><span class='label'>Grade a topic idea</span></div>
+<div class='region-row'><span class='waypoint water'>3</span><span class='label'>Search intent & keyword signals</span></div>
+<div class='region-row'><span class='waypoint lowland'>4</span><span class='label'>Tear down a channel</span></div>
+<div class='region-row'><span class='waypoint lowland'>5</span><span class='label'>Compare two channels</span></div>
 </div></div>
-<div class='menu-group'><p class='menu-group-label'>EXPLORE — reads what you already have</p><div class='menu-grid'>
-<div class='menu-row'><span class='key free'>6</span><span class='label'>Discover breakout opportunities</span></div>
-<div class='menu-row'><span class='key free'>7</span><span class='label'>Niche snapshot</span></div>
-<div class='menu-row'><span class='key free'>8</span><span class='label'>Score a niche against your library</span></div>
-<div class='menu-row'><span class='key free'>9</span><span class='label'>Thumbnail contact sheet</span></div>
-<div class='menu-row'><span class='key free'>10</span><span class='label'>What's moved since last build</span></div>
-<div class='menu-row'><span class='key free'>11</span><span class='label'>Compare all niches side by side</span></div>
+<div class='region'><p class='region-label'>EXPLORE — reads what you already have</p><div class='region-grid'>
+<div class='region-row'><span class='waypoint water'>6</span><span class='label'>Discover breakout opportunities</span></div>
+<div class='region-row'><span class='waypoint water'>7</span><span class='label'>Niche snapshot</span></div>
+<div class='region-row'><span class='waypoint water'>8</span><span class='label'>Score a niche against your library</span></div>
+<div class='region-row'><span class='waypoint water'>9</span><span class='label'>Thumbnail contact sheet</span></div>
+<div class='region-row'><span class='waypoint water'>10</span><span class='label'>What's moved since last build</span></div>
+<div class='region-row'><span class='waypoint water'>11</span><span class='label'>Compare all niches side by side</span></div>
 </div></div>
-<div class='menu-group'><p class='menu-group-label'>MANAGE — maintain your data</p><div class='menu-grid'>
-<div class='menu-row'><span class='key free'>12</span><span class='label'>Rebuild from cleaned data</span></div>
-<div class='menu-row'><span class='key free'>13</span><span class='label'>Slice library to a shorter window</span></div>
-<div class='menu-row'><span class='key ghost'>14</span><span class='label'>Quit</span></div>
+<div class='region'><p class='region-label'>MANAGE — maintain your data</p><div class='region-grid'>
+<div class='region-row'><span class='waypoint water'>12</span><span class='label'>Rebuild from cleaned data</span></div>
+<div class='region-row'><span class='waypoint water'>13</span><span class='label'>Slice library to a shorter window</span></div>
 </div></div>
-</section>
-<p class='legend'><span><b style='background:var(--apricot)'></b>~13,000 units (search)</span><span><b style='background:var(--butter)'></b>~1,000 units (metadata)</span><span><b style='background:var(--mint)'></b>Free — reads what you already have</span></p>
-<h2 class='section-head'>What each module does</h2>
-<div class='modules'>
-<div class='mod'><p class='mod-name'>angles.py</p><p class='mod-what'>Generates the AI prompt file you paste into Claude to get video angle ideas. Takes the breakout clusters and formats them as a research brief.</p><p class='mod-eg'>After running option 6, open angles_prompt.md and paste it into Claude to get 15 specific angle ideas for the niche.</p></div>
-<div class='mod'><p class='mod-name'>api_keys.py</p><p class='mod-what'>Manages your 12 YouTube API keys — loads them from .env, chains them so you don't burn one out, and reserves the last two for topic grading.</p><p class='mod-eg'>You don't call this directly. It runs in the background every time the engine hits YouTube.</p></div>
-<div class='mod'><p class='mod-name'>baseline.py</p><p class='mod-what'>Computes the niche's own percentile anchors — what's a typical view count, what's a typical upload rate. Everything else compares against these numbers.</p><p class='mod-eg'>You never call this directly. It runs automatically when you build or load a niche.</p></div>
-<div class='mod'><p class='mod-name'>calendars.py</p><p class='mod-what'>Produces a publishing calendar based on when the winning videos in a niche were uploaded. Tells you which days and times have historically produced the most breakouts.</p><p class='mod-eg'>After running option 6, open the timing/ folder to see the best days and hour-blocks to publish.</p></div>
-<div class='mod'><p class='mod-name'>calibration.py</p><p class='mod-what'>Holds the calibrated thresholds for market-size and spread labels — what counts as a 'large' market, what makes a spread 'gentle' vs 'brutal'. Separately calibrated at 30d, 90d, and 365d from real niche data.</p><p class='mod-eg'>When you see 'gentle for large markets' on a niche summary, that label came from this module.</p></div>
-<div class='mod'><p class='mod-name'>channel.py</p><p class='mod-what'>Fetches and analyses a single channel's full video catalogue — cadence, trajectory, breakout rate, title patterns, tags. Also computes the diff between two channels.</p><p class='mod-eg'>Option 4: tear down a channel you admire to see exactly how they operate. Option 5: compare two channels side by side to see where they diverge.</p></div>
-<div class='mod'><p class='mod-name'>collector.py</p><p class='mod-what'>The part that actually talks to YouTube. Runs the searches, downloads video metadata, handles key rotation, retries failed requests, and saves everything to disk.</p><p class='mod-eg'>Option 1. Everything you can explore for free was collected by this module at some point.</p></div>
-<div class='mod'><p class='mod-name'>compare.py</p><p class='mod-what'>Loads all your built niches and lines them up in one table so you can compare market size, spread, and scores at a glance.</p><p class='mod-eg'>Option 11: 'I have 10 niches built. Which one has the best spread for a newcomer?' — one command, one table.</p></div>
-<div class='mod'><p class='mod-name'>config.py</p><p class='mod-what'>All the tunable numbers in one place — minimum videos per cluster, breakout score weights, spread calibration thresholds, bootstrap resamples. Change a number here and it flows everywhere that uses it.</p><p class='mod-eg'>If you want to see more clusters in a breakout report, raise CLUSTER_MAX here.</p></div>
-<div class='mod'><p class='mod-name'>coverage.py</p><p class='mod-what'>Checks how much of the niche's content actually got picked up by the cluster analysis. Warns you when a large share of videos don't cluster — which usually means contamination or a very fragmented niche.</p><p class='mod-eg'>When a breakout report says '32% unmatched — possible contamination', that warning came from this module.</p></div>
-<div class='mod'><p class='mod-name'>crossniche.py</p><p class='mod-what'>Grades a niche against all your other niches rather than against itself. This is what makes option 8 useful — without it, every niche would score identically on demand and supply.</p><p class='mod-eg'>Option 8: 'Is ancient_history a strong niche or a weak one compared to the 9 others I've built?' — this module does the pooled comparison.</p></div>
-<div class='mod'><p class='mod-name'>dashboard.py</p><p class='mod-what'>Produces the market dashboard export — a one-page summary of a niche's key numbers formatted for quick review.</p><p class='mod-eg'>After running option 6, open the market/ folder for the dashboard.</p></div>
-<div class='mod'><p class='mod-name'>discover.py</p><p class='mod-what'>The main analysis engine. Scores every video as a breakout candidate, groups them into topic clusters, and writes everything out — the research MD, the discovery MD, the clusters CSV, the JSON, the video table.</p><p class='mod-eg'>Option 6. This is the module you interact with most, even if you never open it.</p></div>
-<div class='mod'><p class='mod-name'>grader.py</p><p class='mod-what'>Scores a single topic or niche across the three pillars — demand, supply, momentum — and combines them into an opportunity score.</p><p class='mod-eg'>Option 2: 'Is there a market for a video about Excel automation?' — grader runs and returns a score with pillar breakdown.</p></div>
-<div class='mod'><p class='mod-name'>insights.py</p><p class='mod-what'>Derives summary statistics from a video dataset — lifecycle, evergreen ratio, engagement patterns, creator-size distribution. Written to insights.json alongside every build.</p><p class='mod-eg'>When a niche summary tells you '72% of content is evergreen', that reading came from this module.</p></div>
-<div class='mod'><p class='mod-name'>main.py</p><p class='mod-what'>The entry point — the numbered menu you interact with. Reads your input, calls the right module, and handles the interactive flows like picking a niche or a window.</p><p class='mod-eg'>This is what runs when you type 'py main.py'.</p></div>
-<div class='mod'><p class='mod-name'>metrics.py</p><p class='mod-what'>Computes per-video derived metrics from the raw API data — views_per_hour, outlier_ratio, breakout_velocity, engagement_rate. These are the numbers every other module reasons about.</p><p class='mod-eg'>You never call this directly. It runs as part of option 1 when building a niche.</p></div>
-<div class='mod'><p class='mod-name'>paths.py</p><p class='mod-what'>Handles all the file path logic — where datasets live, where exports go, how to name files with niche and window so nothing overwrites anything else.</p><p class='mod-eg'>If you ever wonder why a file is named 'ancient_history_365d_breakout.csv', the naming convention is enforced here.</p></div>
-<div class='mod'><p class='mod-name'>quota_tracker.py</p><p class='mod-what'>Tracks how many YouTube API units you've spent this session, per key. Shows the bar at the end of every run so you can see what you have left.</p><p class='mod-eg'>The 'Quota used: 22,497 / 120,000 units' line printed after every build comes from this module.</p></div>
-<div class='mod'><p class='mod-name'>report.py</p><p class='mod-what'>Formats and prints results to the terminal — niche summaries, grade reports, quota bars. Also the module that adds calibration warnings when a number shouldn't be fully trusted.</p><p class='mod-eg'>The formatted output you see in the terminal after running option 7 or 8 is this module rendering the numbers.</p></div>
-<div class='mod'><p class='mod-name'>seo.py</p><p class='mod-what'>Analyses which title words, hashtags, and tags are most associated with breakout videos. Uses a Wilson-score-corrected lift ranking so small-sample noise doesn't dominate.</p><p class='mod-eg'>After option 6, open packaging/seo.md to see which title words and tags the winners used more than average.</p></div>
-<div class='mod'><p class='mod-name'>shorts.py</p><p class='mod-what'>Analyses the Shorts that were filtered out of the main dataset. Finds which topics are busy in short form but thin in long-form.</p><p class='mod-eg'>After option 6, open shorts/shorts.md to see if any Shorts-heavy topics are underserved in full-length format.</p></div>
-<div class='mod'><p class='mod-name'>signals.py</p><p class='mod-what'>Gathers demand signals from outside YouTube — Google autocomplete (what people are searching) and Reddit (what communities are discussing). Produces the intent gap report.</p><p class='mod-eg'>Option 3: 'What are people searching that nobody has covered yet in this niche?' — this module finds those gaps.</p></div>
-<div class='mod'><p class='mod-name'>statistics.py</p><p class='mod-what'>Computes and saves the summary statistics for a niche dataset — percentiles, medians, channel-size breakdown. The numbers that appear in every niche summary.</p><p class='mod-eg'>The 'median views: 4,200' line in a niche snapshot comes from the statistics.csv this module writes.</p></div>
-<div class='mod'><p class='mod-name'>thumbnail_sheet.py</p><p class='mod-what'>Downloads thumbnails for the top breakout videos and tiles them into a contact sheet image for visual study.</p><p class='mod-eg'>Option 9: 'Show me what the winning thumbnails in this niche actually look like' — contact sheet of 20 images.</p></div>
-<div class='mod'><p class='mod-name'>timing.py</p><p class='mod-what'>Analyses publish-time patterns — which hour blocks and day-of-week combinations produced the most breakouts. Uses shrinkage and bootstrap CIs so thin time slots don't look falsely confident.</p><p class='mod-eg'>After option 6, open timing/ to see the best hour blocks to publish in this niche.</p></div>
-<div class='mod'><p class='mod-name'>trends.py</p><p class='mod-what'>Compares two builds of the same niche taken at different times to measure actual change — views gained, new creators, rising and falling topics.</p><p class='mod-eg'>Option 10: 'Has this niche actually grown since I last built it?' — trends does the before/after comparison.</p></div>
-<div class='mod'><p class='mod-name'>verdict.py</p><p class='mod-what'>The composite scoring system — combines Entry, Durability, Reliability, Reward, and Effort into one score per niche, then ranks and compares them. Produces the verdict HTML report.</p><p class='mod-eg'>Option 11 → verdict HTML: 'Of my 10 niches, which should I actually enter?' — verdict scores and ranks them on the five dimensions.</p></div>
+<div class='region'><p class='region-label'>SYNTHESIZE — cross-niche AI prompts</p><div class='region-grid'>
+<div class='region-row'><span class='waypoint water'>14</span><span class='label'>Cross-niche cluster digest</span></div>
+<div class='region-row'><span class='waypoint highland'>15</span><span class='label'>Full workflow: build → discover → digest</span></div>
+</div></div>
+<div class='region'><p class='region-label'>EXIT</p><div class='region-grid'>
+<div class='region-row'><span class='waypoint ghost'>16</span><span class='label'>Quit</span></div>
+</div></div>
 </div>
-<h2 class='section-head'>End-to-end workflows</h2>
-<div class='jobs'>
-<article class='job' style='--tint:var(--apricot)'>
-<h2>Find what to make</h2><p class='aim'>You have a niche. You need ideas that are genuinely under-served, not just ideas.</p>
-<div class='chain'>
-<span class='step'><span class='key dear'>1</span>build</span>
-<span class='arrow'>→</span>
-<span class='step'><span class='key free'>6</span>discover</span>
-<span class='arrow'>→</span>
-<span class='file'>breakout_research.md</span>
-<span class='arrow'>→</span>
-<span class='step'>paste into Claude</span>
-<span class='arrow'>→</span>
-<span class='step'><span class='key cheap'>2</span>grade the best 2-3</span>
+<h2 class='section-head'>Routes<span class='count'>14</span></h2>
+<p class='section-sub'>Each one chains a few menu options into a finished answer. The dashed line is the trail; follow it left to right.</p>
+<div class='routes'>
+<article class='route' style='--tint:var(--highland)'>
+<h3>Find what to make</h3><p class='aim'>You have a niche. You need ideas that are genuinely under-served, not just ideas.</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint highland' style='width:20px;height:20px;font-size:10px'>1</span>build</span>
+<span class='dash'></span>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>6</span>discover</span>
+<span class='dash'></span>
+<span class='node node-file'>breakout_research.md</span>
+<span class='dash'></span>
+<span class='node node-step'>paste into Claude</span>
+<span class='dash'></span>
+<span class='node node-key'><span class='waypoint lowland' style='width:20px;height:20px;font-size:10px'>2</span>grade the best 2-3</span>
 </div>
 <p class='note'>The main loop — everything else supports it. Don't skip the grading step. <strong>An angle that reads beautifully can still sit in a saturated corner</strong>, and 1,000 units is cheap insurance against a week of wasted production.</p>
-<p class='cost'>13,000 units to build · ~1,000 per topic graded</p></article>
-<article class='job' style='--tint:var(--butter)'>
-<h2>Validate one idea</h2><p class='aim'>You already know what you want to make. Is the market actually there?</p>
-<div class='chain'>
-<span class='step'><span class='key cheap'>2</span>grade topic against niche</span>
+<p class='cost'><span>13,000 units to build · ~1,000 per topic graded</span><span class='badge highland'>highland</span></p>
+</article>
+<article class='route' style='--tint:var(--lowland)'>
+<h3>Validate one idea</h3><p class='aim'>You already know what you want to make. Is the market actually there?</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint lowland' style='width:20px;height:20px;font-size:10px'>2</span>grade topic against niche</span>
 </div>
 <p class='note'>Read the <strong>demand-minus-supply imbalance</strong>, not the headline score. Demand well above supply is the signal. Momentum tells you whether you're early or late.</p>
-<p class='cost'>~1,000 units · needs a niche built first</p></article>
-<article class='job' style='--tint:var(--mint)'>
-<h2>Decide which niche to enter</h2><p class='aim'>You have several niches built. Which one should you actually commit to?</p>
-<div class='chain'>
-<span class='step'><span class='key free'>11</span>compare</span>
-<span class='arrow'>→</span>
-<span class='file'>_verdict.html</span>
+<p class='cost'><span>~1,000 units · needs a niche built first</span><span class='badge lowland'>lowland</span></p>
+</article>
+<article class='route' style='--tint:var(--water)'>
+<h3>Decide which niche to enter</h3><p class='aim'>You have several niches built. Which one should you actually commit to?</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>11</span>compare</span>
+<span class='dash'></span>
+<span class='node node-file'>_verdict.html</span>
 </div>
 <p class='note'>Option 11 shows the table. At the end it offers a scored verdict — say yes. It measures <strong>whether a small channel ever wins here</strong>, whether the catalogue compounds, how concentrated the outcomes are, and what a hit is worth. No quota — reads videos.csv from disk.</p>
-<p class='cost'>Free · reads videos.csv from disk</p></article>
-<article class='job' style='--tint:var(--mint)'>
-<h2>Cross-niche topic research</h2><p class='aim'>You want title ideas that borrow proven vocabulary from adjacent niches, not just your main one.</p>
-<div class='chain'>
-<span class='step'><span class='key free'>6</span>discover main niche</span>
-<span class='arrow'>→</span>
-<span class='file'>breakout_discovery.md</span>
-<span class='arrow'>→</span>
-<span class='step'>repeat for 1-2 crossover niches</span>
-<span class='arrow'>→</span>
-<span class='step'>paste all 3 + your prompt into Claude</span>
+<p class='cost'><span>Free · reads videos.csv from disk</span><span class='badge water'>water</span></p>
+</article>
+<article class='route' style='--tint:var(--highland)'>
+<h3>Trending + evergreen titles, one button</h3><p class='aim'>You want the full cross-niche title pipeline — build, slice, discover, and rank — without opening five menu options in sequence.</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint highland' style='width:20px;height:20px;font-size:10px'>15</span>full workflow</span>
+<span class='dash'></span>
+<span class='node node-step'>name anchor + crossover niches</span>
+<span class='dash'></span>
+<span class='node node-file'>trending_digest_prompt.md</span>
+<span class='dash'></span>
+<span class='node node-file'>evergreen_digest_prompt.md</span>
 </div>
-<p class='note'>The discovery MD is lean on purpose — <strong>6-8KB per file</strong> so pasting three together doesn't blow the context window. Your standalone prompt does the ranking and title generation; the files just carry the cluster data.</p>
-<p class='cost'>Free · all three reads are from disk</p></article>
-<article class='job' style='--tint:var(--butter)'>
-<h2>Clone a channel you admire</h2><p class='aim'>One creator is doing exactly what you want to do. What exactly are they doing?</p>
-<div class='chain'>
-<span class='step'><span class='key cheap'>4</span>teardown</span>
-<span class='arrow'>→</span>
-<span class='file'>teardown.md</span>
-<span class='arrow'>→</span>
-<span class='file'>thumbnails/</span>
+<p class='note'><strong>The fast path</strong> for cross-niche research. Builds what's missing, slices 30d/90d for free, runs discovery on every window, and pools the results into two paste-ready prompts — one for what's moving now, one for themes that keep recurring across the year. Asks only for niche names; every window and ranking decision is automatic.</p>
+<p class='cost'><span>13,000 units per niche not yet built · free to re-run after</span><span class='badge highland'>highland</span></p>
+</article>
+<article class='route' style='--tint:var(--water)'>
+<h3>Cross-niche topic research</h3><p class='aim'>You want title ideas that borrow proven vocabulary from adjacent niches, not just your main one, with hands-on control over exactly which niches and windows go in.</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>6</span>discover main niche</span>
+<span class='dash'></span>
+<span class='node node-file'>breakout_discovery.md</span>
+<span class='dash'></span>
+<span class='node node-step'>repeat for 1-2 crossover niches</span>
+<span class='dash'></span>
+<span class='node node-step'>paste all 3 + your prompt into Claude</span>
+</div>
+<p class='note'>The manual route — <strong>option 15 automates this end to end</strong> if you just want the output. Come here instead when you want to hand-pick which niches and windows go into the pool, or write your own prompt instead of the generated one.</p>
+<p class='cost'><span>Free · all three reads are from disk</span><span class='badge water'>water</span></p>
+</article>
+<article class='route' style='--tint:var(--lowland)'>
+<h3>Clone a channel you admire</h3><p class='aim'>One creator is doing exactly what you want to do. What exactly are they doing?</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint lowland' style='width:20px;height:20px;font-size:10px'>4</span>teardown</span>
+<span class='dash'></span>
+<span class='node node-file'>teardown.md</span>
+<span class='dash'></span>
+<span class='node node-file'>thumbnails/</span>
 </div>
 <p class='note'>Cadence, growth trajectory, their own breakouts, title <strong>templates</strong>, tags and thumbnails. Costs ~13 units because a catalogue comes from the uploads playlist (1 unit per 50) rather than search (100 per call). <strong>Format transfers; specific videos don't.</strong></p>
-<p class='cost'>~13 units for a 300-video channel</p></article>
-<article class='job' style='--tint:var(--butter)'>
-<h2>Compare two channels directly</h2><p class='aim'>How do two creators in the same space actually differ — who's performing better, and why?</p>
-<div class='chain'>
-<span class='step'><span class='key cheap'>5</span>compare two channels</span>
-<span class='arrow'>→</span>
-<span class='file'>diff.md</span>
-<span class='arrow'>→</span>
-<span class='file'>diff.json</span>
+<p class='cost'><span>~13 units for a 300-video channel</span><span class='badge lowland'>lowland</span></p>
+</article>
+<article class='route' style='--tint:var(--lowland)'>
+<h3>Compare two channels directly</h3><p class='aim'>How do two creators in the same space actually differ — who's performing better, and why?</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint lowland' style='width:20px;height:20px;font-size:10px'>5</span>compare two channels</span>
+<span class='dash'></span>
+<span class='node node-file'>diff.md</span>
+<span class='dash'></span>
+<span class='node node-file'>diff.json</span>
 </div>
 <p class='note'>Performance, cadence, format, trajectory, title language overlap and tag overlap — all in one diff. <strong>Costs about 26 units total</strong> (13 per channel catalogue).</p>
-<p class='cost'>~26 units total</p></article>
-<article class='job' style='--tint:var(--mint)'>
-<h2>Learn how to package it</h2><p class='aim'>Topic decided. Now: how do the winners title and thumbnail it?</p>
-<div class='chain'>
-<span class='step'><span class='key free'>6</span>discover</span>
-<span class='arrow'>→</span>
-<span class='file'>packaging/seo.md</span>
-<span class='arrow'>→</span>
-<span class='step'><span class='key free'>9</span>contact sheet</span>
+<p class='cost'><span>~26 units total</span><span class='badge lowland'>lowland</span></p>
+</article>
+<article class='route' style='--tint:var(--water)'>
+<h3>Learn how to package it</h3><p class='aim'>Topic decided. Now: how do the winners title and thumbnail it?</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>6</span>discover</span>
+<span class='dash'></span>
+<span class='node node-file'>packaging/seo.md</span>
+<span class='dash'></span>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>9</span>contact sheet</span>
 </div>
 <p class='note'>Tag lift, title word lift, hashtag patterns. <strong>Lift is correlational</strong> — it shows what winners did, not what caused the winning.</p>
-<p class='cost'>Free after the build</p></article>
-<article class='job' style='--tint:var(--mint)'>
-<h2>Research keywords</h2><p class='aim'>What do people actually type into the search box?</p>
-<div class='chain'>
-<span class='step'><span class='key free'>3</span>autocomplete</span>
-<span class='arrow'>→</span>
-<span class='file'>intent_gaps.md</span>
-<span class='arrow'>→</span>
-<span class='step'>paste into Claude for triage</span>
+<p class='cost'><span>Free after the build</span><span class='badge water'>water</span></p>
+</article>
+<article class='route' style='--tint:var(--water)'>
+<h3>Research keywords</h3><p class='aim'>What do people actually type into the search box?</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>3</span>autocomplete</span>
+<span class='dash'></span>
+<span class='node node-file'>intent_gaps.md</span>
+<span class='dash'></span>
+<span class='node node-step'>paste into Claude for triage</span>
 </div>
 <p class='note'>Google autocomplete harvest — what gets suggested tells you what's being searched. The intent gap report crosses this against your niche to find <strong>what's searched but not covered</strong>. Matching is lexical, so triage with AI before acting.</p>
-<p class='cost'>Free · no YouTube quota</p></article>
-<article class='job' style='--tint:var(--mint)'>
-<h2>Find what's coming</h2><p class='aim'>Cover something before the wave reaches YouTube.</p>
-<div class='chain'>
-<span class='step'><span class='key free'>3</span>Reddit signals</span>
-<span class='arrow'>→</span>
-<span class='file'>signals/reddit_signals.md</span>
+<p class='cost'><span>Free · no YouTube quota</span><span class='badge water'>water</span></p>
+</article>
+<article class='route' style='--tint:var(--water)'>
+<h3>Find what's coming</h3><p class='aim'>Cover something before the wave reaches YouTube.</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>3</span>Reddit signals</span>
+<span class='dash'></span>
+<span class='node node-file'>signals/reddit_signals.md</span>
 </div>
 <p class='note'>Terms climbing on Reddit but thin on YouTube. <strong>Treat these as leads to check, not forecasts</strong> — the idea that social chatter reliably precedes YouTube is widely repeated and never actually demonstrated.</p>
-<p class='cost'>Free · no YouTube quota</p></article>
-<article class='job' style='--tint:var(--mint)'>
-<h2>Compare at a shorter window</h2><p class='aim'>You have 365d builds. You want to see what the last 90 days looks like across all of them at once.</p>
-<div class='chain'>
-<span class='step'><span class='key free'>13</span>slice library to 90d</span>
-<span class='arrow'>→</span>
-<span class='step'><span class='key free'>11</span>compare at 90d</span>
+<p class='cost'><span>Free · no YouTube quota</span><span class='badge water'>water</span></p>
+</article>
+<article class='route' style='--tint:var(--water)'>
+<h3>Compare at a shorter window</h3><p class='aim'>You have 365d builds. You want to see what the last 90 days looks like across all of them at once.</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>13</span>slice library to 90d</span>
+<span class='dash'></span>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>11</span>compare at 90d</span>
 </div>
 <p class='note'>Slicing is free — it re-filters the data you already paid for. Option 13 does all your niches in one go. Then option 11 will ask which window you want — <strong>type 90</strong> (not 90d) and it compares the slices.</p>
-<p class='cost'>Free · zero API calls</p></article>
-<article class='job' style='--tint:var(--mint)'>
-<h2>See what actually moved</h2><p class='aim'>Is this niche going anywhere since you last looked?</p>
-<div class='chain'>
-<span class='step'><span class='key free'>10</span>trends</span>
-<span class='arrow'>→</span>
-<span class='file'>trends/since_last_build.md</span>
+<p class='cost'><span>Free · zero API calls</span><span class='badge water'>water</span></p>
+</article>
+<article class='route' style='--tint:var(--water)'>
+<h3>See what actually moved</h3><p class='aim'>Is this niche going anywhere since you last looked?</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>10</span>trends</span>
+<span class='dash'></span>
+<span class='node node-file'>trends/since_last_build.md</span>
 </div>
 <p class='note'>The only <strong>measured</strong> demand figure the engine produces. Everywhere else views_per_hour is a lifetime average — two snapshots give actual views gained, separating <strong>still being watched</strong> from <strong>finished months ago</strong>. Needs two builds of the same niche, days apart.</p>
-<p class='cost'>Free · reads the history/ folder</p></article>
-<article class='job' style='--tint:var(--mint)'>
-<h2>See which themes actually last</h2><p class='aim'>Is this format durable, or was it a moment?</p>
-<div class='chain'>
-<span class='step'><span class='key free'>6</span>discover</span>
-<span class='arrow'>→</span>
-<span class='file'>breakouts/by_era.md</span>
+<p class='cost'><span>Free · reads the history/ folder</span><span class='badge water'>water</span></p>
+</article>
+<article class='route' style='--tint:var(--water)'>
+<h3>See which themes actually last</h3><p class='aim'>Is this format durable, or was it a moment?</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>6</span>discover</span>
+<span class='dash'></span>
+<span class='node node-file'>breakouts/by_era.md</span>
 </div>
 <p class='note'>Breakouts split into 0-90d / 90-180d / 180-365d, each ranked against its own contemporaries. A theme appearing in all three eras is a <strong>format</strong>; one appearing only in the newest is a news cycle.</p>
-<p class='cost'>Free · slices the build you already have</p></article>
-<article class='job wide' style='--tint:var(--mint)'>
-<h2>Find a repeatable format</h2><p class='aim'>A series, not a one-off.</p>
-<div class='chain'>
-<span class='step'><span class='key free'>6</span>discover</span>
-<span class='arrow'>→</span>
-<span class='file'>breakouts/breakout_clusters.csv</span>
-<span class='arrow'>→</span>
-<span class='step'>sort by unique_channels</span>
+<p class='cost'><span>Free · slices the build you already have</span><span class='badge water'>water</span></p>
+</article>
+<article class='route wide' style='--tint:var(--water)'>
+<h3>Find a repeatable format</h3><p class='aim'>A series, not a one-off.</p>
+<div class='trail'>
+<span class='node node-key'><span class='waypoint water' style='width:20px;height:20px;font-size:10px'>6</span>discover</span>
+<span class='dash'></span>
+<span class='node node-file'>breakouts/breakout_clusters.csv</span>
+<span class='dash'></span>
+<span class='node node-step'>sort by unique_channels</span>
 </div>
 <p class='note'>A cluster where seven or more separate channels succeeded is a <strong>format</strong>, not a fluke. That's the difference between one good video and a content engine.</p>
-<p class='cost'>Free after the build</p></article>
+<p class='cost'><span>Free after the build</span><span class='badge water'>water</span></p>
+</article>
 </div>
-<section class='limits'><h2>What it can't do</h2><p class='lead'>Worth knowing before you go looking for these.</p><dl>
+<section class='limits'><h2>Off the map</h2><p class='lead'>Worth knowing before you go looking for these.</p><dl>
 <dt>Tell you whether <em>your</em> video will work</dt><dd>It never sees your channel. Every number describes the market, not your odds in it.</dd>
 <dt>Judge whether a video is on-topic</dt><dd>There's no topical relevance filter, deliberately. Occasional off-topic leaks are the price of not silently dropping things that only look irrelevant. Run the cleaning workflow on any niche before treating its numbers as calibration data.</dd>
 <dt>Measure current demand from one build</dt><dd>A single snapshot cannot separate a video still climbing from one that stopped a year ago — views_per_hour is a lifetime average. Option 10 fixes this, but only once you have two builds of the same niche to compare.</dd>
@@ -300,5 +335,5 @@ footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
 <dt>See why a video worked</dt><dd>Click-through rate, average view duration, retention and traffic sources are private analytics. No public API exposes them at any price, for any channel. Everything here is inference from outside.</dd>
 <dt>Validate the Reliability score</dt><dd>Reliability measures outcome concentration — how narrow the gap between a decent and a great video is. That's a reasonable proxy for predictability, but it hasn't been checked against real channel outcomes. Treat it as a structured heuristic until you have your own data to compare against.</dd>
 </dl></section>
-<footer><span>29 modules</span><span>Deterministic — same data in, same answer out</span><span>Math discovers, AI explains</span><span>Generated 2026-08-28</span></footer>
+<footer><span>30 modules behind 16 options</span><span>Deterministic — same data in, same answer out</span><span>Math discovers, AI explains</span><span>Generated 2026-08-29</span></footer>
 </div></body></html>

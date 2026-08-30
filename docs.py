@@ -64,12 +64,18 @@ MENU_GROUPS = [
          "Re-derive everything from a cleaned videos.csv — no API calls."),
         ("13", "Slice library to a shorter window","free",
          "Turn 365d builds into 30d/90d slices, free, from data you have."),
-        ("14", "Quit",                             None, ""),
     ]),
     ("SYNTHESIZE — cross-niche AI prompts", "free", [
-        ("15", "Cross-niche cluster digest",       "free",
+        ("14", "Cross-niche cluster digest",       "free",
          "Pool breakout clusters from multiple niches/windows, filter + "
          "rank them, and write a paste-ready title-generation prompt."),
+        ("15", "Full workflow: build → discover → digest", "dear",
+         "One guided run: build anchor + crossover niches, slice free "
+         "trending windows, run discovery, extract evergreen themes, "
+         "and export both a trending and an evergreen AI prompt."),
+    ]),
+    ("EXIT", "free", [
+        ("16", "Quit",                             None, ""),
     ]),
 ]
 
@@ -177,7 +183,7 @@ MODULE_DESCRIPTIONS = {
                 "(e.g. finance@30d + finance@90d + two crossover niches) "
                 "into one filtered, ranked list, and writes a paste-ready "
                 "title-generation prompt from it.",
-        "example": "Option 15: 'Give me a ranked table of the strongest "
+        "example": "Option 14: 'Give me a ranked table of the strongest "
                    "topics across my finance, psychology, and investing "
                    "niches, filtered fairly across windows' — digest does "
                    "the merge and writes the AI prompt.",
@@ -362,17 +368,37 @@ WORKFLOWS = [
         "tint": "free",
     },
     {
+        "name": "Trending + evergreen titles, one button",
+        "aim": "You want the full cross-niche title pipeline — build, "
+               "slice, discover, and rank — without opening five menu "
+               "options in sequence.",
+        "chain": [("key", "15", "full workflow"), ("arrow",),
+                  ("step", "name anchor + crossover niches"), ("arrow",),
+                  ("file", "trending_digest_prompt.md"), ("arrow",),
+                  ("file", "evergreen_digest_prompt.md")],
+        "note": "**The fast path** for cross-niche research. Builds what's "
+                "missing, slices 30d/90d for free, runs discovery on every "
+                "window, and pools the results into two paste-ready "
+                "prompts — one for what's moving now, one for themes that "
+                "keep recurring across the year. Asks only for niche "
+                "names; every window and ranking decision is automatic.",
+        "cost": "13,000 units per niche not yet built · free to re-run after",
+        "tint": "dear",
+    },
+    {
         "name": "Cross-niche topic research",
         "aim": "You want title ideas that borrow proven vocabulary from "
-               "adjacent niches, not just your main one.",
+               "adjacent niches, not just your main one, with hands-on "
+               "control over exactly which niches and windows go in.",
         "chain": [("key", "6", "discover main niche"), ("arrow",),
                   ("file", "breakout_discovery.md"), ("arrow",),
                   ("step", "repeat for 1-2 crossover niches"), ("arrow",),
                   ("step", "paste all 3 + your prompt into Claude")],
-        "note": "The discovery MD is lean on purpose — **6-8KB per file** "
-                "so pasting three together doesn't blow the context window. "
-                "Your standalone prompt does the ranking and title "
-                "generation; the files just carry the cluster data.",
+        "note": "The manual route — **option 15 automates this end to "
+                "end** if you just want the output. Come here instead "
+                "when you want to hand-pick which niches and windows go "
+                "into the pool, or write your own prompt instead of the "
+                "generated one.",
         "cost": "Free · all three reads are from disk",
         "tint": "free",
     },
@@ -714,96 +740,128 @@ def render_workflow_prompt():
 
 _HTML_CSS = """
 :root{
-  --mint:#C9E4D4; --butter:#F7E5B7; --apricot:#F8D3C0;
-  --lilac:#DCD3EC; --sky:#C6DCEB; --lavender:#EBE8F4;
-  --paper:#F2F4F7; --card:#FFF; --ink:#2E3440; --ink-2:#5A6474;
-  --ink-3:#8B94A3; --rule:#E1E6ED;
-  --display:'Space Grotesk',system-ui,sans-serif;
-  --body:'Inter',system-ui,sans-serif; --mono:'IBM Plex Mono',monospace;
+  --paper:#EEF0E7; --grid:#CDD1BE; --card:#FBFBF6; --card-line:#DEDFD1;
+  --ink:#20303A; --ink-2:#54646C; --ink-3:#8A9089;
+  --water:#3E7A82; --water-soft:#DCEAE9;
+  --lowland:#75894C; --lowland-soft:#E6EAD9;
+  --highland:#B8452F; --highland-soft:#F3DED4;
+  --display:'Archivo Expanded',system-ui,sans-serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',monospace;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);
-  font-size:16px;line-height:1.6;padding:clamp(24px,5vw,64px) clamp(16px,5vw,48px)}
-.wrap{max-width:1040px;margin:0 auto}
-.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;
-  text-transform:uppercase;color:var(--ink-3);margin:0 0 14px}
-h1{font-family:var(--display);font-weight:700;font-size:clamp(28px,5vw,48px);
-  line-height:1.06;letter-spacing:-.025em;margin:0 0 16px;max-width:18ch}
-h2.section-head{font-family:var(--display);font-weight:700;font-size:22px;
-  letter-spacing:-.015em;margin:clamp(40px,6vw,64px) 0 20px;color:var(--ink)}
-.standfirst{font-size:clamp(15px,2.2vw,18px);color:var(--ink-2);max-width:56ch;margin:0}
-/* ---- menu ---- */
-.menu{background:var(--card);border:1px solid var(--rule);border-radius:14px;
-  padding:clamp(18px,3vw,26px);margin:clamp(28px,5vw,44px) 0}
-.menu-title{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;
-  text-transform:uppercase;color:var(--ink-3);margin:0 0 20px}
-.menu-group{margin:0 0 22px}
-.menu-group:last-child{margin:0}
-.menu-group-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
-  text-transform:uppercase;color:var(--ink-3);margin:0 0 10px;
-  padding-bottom:6px;border-bottom:1px solid var(--rule)}
-.menu-grid{display:grid;gap:7px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
-.menu-row{display:flex;align-items:center;gap:11px;font-size:14px}
-.menu-row span.label{color:var(--ink-2)}
-.key{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:7px;
-  background:var(--sky);border:1px solid rgba(46,52,64,.13);
-  box-shadow:0 1.5px 0 rgba(46,52,64,.16);font-family:var(--mono);
-  font-weight:600;font-size:13px;color:var(--ink)}
-.key.free{background:var(--mint)} .key.cheap{background:var(--butter)}
-.key.dear{background:var(--apricot)} .key.api{background:var(--butter)}
-.key.ghost{background:var(--card);color:var(--ink-3)}
-.legend{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:center;
-  margin:0 0 clamp(28px,5vw,40px);font-size:13px;color:var(--ink-2)}
-.legend b{display:inline-block;width:14px;height:14px;border-radius:4px;
-  vertical-align:-2px;margin-right:6px;border:1px solid rgba(46,52,64,.12)}
-/* ---- modules ---- */
-.modules{display:grid;gap:12px;margin:0 0 clamp(28px,5vw,44px)}
-@media(min-width:640px){.modules{grid-template-columns:1fr 1fr}}
-@media(min-width:900px){.modules{grid-template-columns:1fr 1fr 1fr}}
-.mod{background:var(--card);border:1px solid var(--rule);border-radius:12px;
-  padding:16px 18px}
-.mod-name{font-family:var(--mono);font-weight:600;font-size:13px;
-  color:var(--ink);margin:0 0 6px}
-.mod-what{font-size:13.5px;color:var(--ink-2);margin:0 0 8px;line-height:1.5}
-.mod-eg{font-size:12.5px;color:var(--ink-3);font-style:italic;
-  border-top:1px solid var(--rule);padding-top:8px;margin:0}
-/* ---- workflows ---- */
-.jobs{display:grid;gap:16px}
-@media(min-width:820px){.jobs{grid-template-columns:1fr 1fr}}
-.job{background:var(--card);border:1px solid var(--rule);border-radius:14px;
-  padding:clamp(20px,3vw,26px);position:relative;overflow:hidden;
-  transition:transform .18s ease,box-shadow .18s ease}
-.job::before{content:"";position:absolute;inset:0 auto 0 0;width:5px;
-  background:var(--tint,var(--sky))}
-.job:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(46,52,64,.07)}
-.job.wide{grid-column:1/-1}
-.job h2{font-family:var(--display);font-weight:700;font-size:19px;
-  letter-spacing:-.015em;margin:0 0 4px}
-.aim{color:var(--ink-2);font-size:14px;margin:0 0 16px;max-width:52ch}
-.chain{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px;
-  border-radius:10px;background:var(--paper);margin:0 0 14px}
-.chain .arrow{color:var(--ink-3);font-size:13px;flex:none}
-.chain .step{font-family:var(--mono);font-size:12px;color:var(--ink-2);
-  display:flex;align-items:center;gap:6px}
-.chain .file{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);
-  background:var(--card);border:1px solid var(--rule);padding:3px 8px;border-radius:6px}
-.note{font-size:13.5px;color:var(--ink-2);margin:0 0 14px;max-width:54ch}
-.note strong{color:var(--ink);font-weight:600}
-.cost{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
-  border-top:1px solid var(--rule);padding-top:12px;margin:0}
-/* ---- limits ---- */
-.limits{background:var(--lilac);border-radius:14px;padding:clamp(22px,3.5vw,30px);
-  margin-top:clamp(28px,5vw,44px)}
-.limits h2{font-family:var(--display);font-weight:700;font-size:20px;
-  margin:0 0 6px;letter-spacing:-.015em}
-.limits p.lead{margin:0 0 18px;color:#4B4460;font-size:14px;max-width:58ch}
-.limits dl{margin:0;display:grid;gap:14px}
-.limits dt{font-weight:600;font-size:14px;color:#332E45}
-.limits dd{margin:3px 0 0;font-size:13.5px;color:#54506B;max-width:62ch}
-footer{margin-top:clamp(30px,5vw,48px);padding-top:20px;
-  border-top:1px solid var(--rule);font-family:var(--mono);font-size:11px;
-  color:var(--ink-3);display:flex;flex-wrap:wrap;gap:6px 18px}
+  font-size:16px;line-height:1.6;padding:clamp(20px,5vw,60px) clamp(14px,5vw,44px);
+  background-image:repeating-linear-gradient(115deg,rgba(32,48,58,.05) 0,
+    rgba(32,48,58,.05) 1px,transparent 1px,transparent 64px);}
+.wrap{max-width:1060px;margin:0 auto}
+a{color:inherit}
+/* ---- header ---- */
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 14px;
+  display:flex;align-items:center;gap:10px}
+.eyebrow::before{content:"";width:22px;height:1px;background:var(--ink-3)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(28px,4.6vw,44px);
+  line-height:1.08;letter-spacing:-.01em;margin:0 0 16px;max-width:19ch}
+.standfirst{font-size:clamp(14.5px,2vw,17px);color:var(--ink-2);max-width:58ch;margin:0 0 clamp(24px,4vw,34px)}
+h2.section-head{font-family:var(--display);font-weight:700;font-size:20px;
+  letter-spacing:-.01em;margin:clamp(38px,6vw,58px) 0 6px;color:var(--ink);
+  display:flex;align-items:baseline;gap:10px}
+h2.section-head .count{font-family:var(--mono);font-weight:400;font-size:12px;
+  color:var(--ink-3)}
+p.section-sub{font-size:13.5px;color:var(--ink-2);margin:0 0 22px;max-width:56ch}
+/* ---- terrain legend ---- */
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 clamp(24px,4vw,36px)}
+.legend-item{display:flex;align-items:center;gap:9px;background:var(--card);
+  border:1px solid var(--card-line);border-radius:10px;padding:9px 14px;
+  font-size:12.5px;color:var(--ink-2);flex:1 1 220px}
+.legend-swatch{flex:none;width:12px;height:12px;border-radius:3px}
+.legend-swatch.water{background:var(--water)}
+.legend-swatch.lowland{background:var(--lowland)}
+.legend-swatch.highland{background:var(--highland)}
+.legend-item b{color:var(--ink);font-weight:600}
+/* ---- menu index ---- */
+.index{background:var(--card);border:1px solid var(--card-line);border-radius:14px;
+  padding:clamp(16px,3vw,24px);margin:0 0 clamp(28px,4.5vw,40px)}
+.index-title{font-family:var(--mono);font-size:11px;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 18px;
+  display:flex;align-items:center;gap:8px}
+.index-title::after{content:"";flex:1;height:1px;background:var(--card-line)}
+.region{margin:0 0 20px}
+.region:last-child{margin:0}
+.region-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--ink-3);margin:0 0 9px}
+.region-grid{display:grid;gap:5px 20px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr))}
+.region-row{display:flex;align-items:center;gap:11px;font-size:13.5px;
+  padding:3px 0;border-bottom:1px dotted var(--card-line)}
+.region-row .waypoint{flex:none}
+.region-row .label{color:var(--ink-2)}
+.waypoint{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;
+  font-family:var(--mono);font-weight:600;font-size:11px;border:1.5px solid transparent}
+.waypoint.water{background:var(--water-soft);color:var(--water);border-color:var(--water)}
+.waypoint.lowland{background:var(--lowland-soft);color:var(--lowland);border-color:var(--lowland)}
+.waypoint.highland{background:var(--highland-soft);color:var(--highland);border-color:var(--highland)}
+.waypoint.ghost{background:var(--card);color:var(--ink-2);border-color:var(--ink-3)}
+/* ---- routes (workflow cards) ---- */
+.routes{display:grid;gap:16px;margin:0 0 clamp(28px,4.5vw,40px)}
+@media(min-width:840px){.routes{grid-template-columns:1fr 1fr}}
+.route{background:var(--card);border:1px solid var(--card-line);border-radius:14px;
+  padding:clamp(18px,3vw,24px);position:relative;overflow:hidden}
+.route::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;
+  background:var(--tint,var(--water))}
+.route.wide{grid-column:1/-1}
+.route h3{font-family:var(--display);font-weight:700;font-size:18px;
+  letter-spacing:-.01em;margin:0 0 5px;color:var(--ink)}
+.route .aim{color:var(--ink-2);font-size:13.5px;margin:0 0 16px;max-width:54ch}
+.trail{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0 0 14px;
+  padding:12px 4px;border-radius:10px}
+.trail .node{display:flex;align-items:center;gap:7px;flex:none}
+.trail .dash{flex:1 1 22px;min-width:16px;height:0;border-top:2px dashed var(--card-line);
+  margin:0 6px;align-self:center}
+.trail .node-key{font-family:var(--mono);font-size:12px;color:var(--ink-2);
+  display:flex;align-items:center;gap:6px;white-space:nowrap}
+.trail .node-file{font-family:var(--mono);font-size:11px;color:var(--ink-2);
+  background:var(--paper);border:1px dashed var(--card-line);padding:3px 9px;
+  border-radius:6px;white-space:nowrap}
+.trail .node-step{font-family:var(--body);font-size:12px;color:var(--ink-2);
+  background:var(--paper);border:1px solid var(--card-line);padding:3px 10px;
+  border-radius:20px;white-space:nowrap}
+.route .note{font-size:13.5px;color:var(--ink-2);margin:0 0 14px;max-width:56ch}
+.route .note strong{color:var(--ink);font-weight:600}
+.route .cost{font-family:var(--mono);font-size:11px;color:var(--ink-3);
+  border-top:1px solid var(--card-line);padding-top:11px;margin:0;
+  display:flex;align-items:center;justify-content:space-between;gap:10px}
+.route .cost .badge{font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+  padding:2px 8px;border-radius:20px}
+.route .cost .badge.water{background:var(--water-soft);color:var(--water)}
+.route .cost .badge.lowland{background:var(--lowland-soft);color:var(--lowland)}
+.route .cost .badge.highland{background:var(--highland-soft);color:var(--highland)}
+/* ---- off the map (limits) ---- */
+.limits{border:1px dashed var(--ink-3);border-radius:14px;
+  padding:clamp(20px,3.5vw,28px);margin-top:clamp(28px,4.5vw,40px)}
+.limits h2{font-family:var(--display);font-weight:700;font-size:19px;
+  margin:0 0 6px;letter-spacing:-.01em}
+.limits p.lead{margin:0 0 18px;color:var(--ink-2);font-size:13.5px;max-width:58ch}
+.limits dl{margin:0;display:grid;gap:13px}
+.limits dt{font-weight:600;font-size:13.5px;color:var(--ink)}
+.limits dt::before{content:"— "; color:var(--ink-3)}
+.limits dd{margin:2px 0 0 14px;font-size:13px;color:var(--ink-2);max-width:62ch}
+footer{margin-top:clamp(28px,4.5vw,44px);padding-top:18px;
+  border-top:1px solid var(--card-line);font-family:var(--mono);font-size:10.5px;
+  color:var(--ink-3);display:flex;flex-wrap:wrap;gap:5px 16px}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Fallback for renderers without flex/grid gap support (old WebKit,
+   some PDF/email renderers) — modern browsers already get correct
+   spacing from gap above, so this is additive insurance, not a
+   replacement, and only fires where gap itself is unsupported. */
+@supports not (gap:10px){
+  .legend-item>*:not(:last-child),
+  .region-row>*:not(:last-child),
+  .trail .node>*:not(:last-child),
+  .index-title{margin-right:8px}
+  footer span{margin-right:16px}
+  h2.section-head .count{margin-left:10px}
+}
 """
 
 
@@ -817,93 +875,95 @@ def _md_bold_to_html(text):
 
 
 def render_workflows_html():
-    """The pastel reference page."""
-    tint_map = {"dear": "var(--apricot)", "cheap": "var(--butter)",
-                "free": "var(--mint)", "api": "var(--butter)"}
+    """The signal-map reference page — routes across the menu, not a
+    module-by-module manual. Deliberately has no section explaining
+    what each .py file does: that's implementation detail for whoever
+    edits the engine, not for whoever is deciding which button to
+    press next, so it lives in docs.py's own docstrings instead."""
+    tint_map = {"dear": "highland", "cheap": "lowland",
+               "free": "water", "api": "lowland"}
     H = ["<!doctype html><html lang='en'><head><meta charset='utf-8'>",
          "<meta name='viewport' content='width=device-width, initial-scale=1'>",
-         "<title>YouTube Market Intelligence Engine</title>",
+         "<title>YouTube Market Intelligence Engine — route map</title>",
          "<link rel='preconnect' href='https://fonts.googleapis.com'>",
          "<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>",
-         "<link href='https://fonts.googleapis.com/css2?family=Space+Grotesk:"
-         "wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&"
-         "family=Inter:wght@400;500;600&display=swap' rel='stylesheet'>",
+         "<link href='https://fonts.googleapis.com/css2?family=Archivo+Expanded:"
+         "wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&"
+         "family=IBM+Plex+Sans:wght@400;500;600&display=swap' rel='stylesheet'>",
          f"<style>{_HTML_CSS}</style></head><body><div class='wrap'>"]
 
     # ---- header ----
-    H.append("<header><p class='eyebrow'>YouTube Market Intelligence Engine</p>")
-    H.append("<h1>What each piece does, and how to chain them.</h1>")
-    H.append("<p class='standfirst'>30 modules. 13 menu options. "
-             "On their own they don't do much — the value is in chaining "
-             "them. Everything below is a chain, priced so you can see "
-             "what it costs before you start.</p></header>")
+    H.append("<header><p class='eyebrow'>py main.py — route map</p>")
+    H.append("<h1>Where you want to go, and the fastest way there.</h1>")
+    H.append(f"<p class='standfirst'>{len(MENU)} menu options, one job "
+             "each. Below: the routes that chain them into an actual "
+             "answer, priced by terrain so you know the cost before you "
+             "set out.</p></header>")
 
-    # ---- menu (grouped) ----
-    H.append("<section class='menu'><p class='menu-title'>py main.py</p>")
+    # ---- terrain legend ----
+    H.append("<div class='legend'>"
+             "<div class='legend-item'><span class='legend-swatch water'>"
+             "</span><span><b>Water</b> — free, reads what's already on "
+             "disk</span></div>"
+             "<div class='legend-item'><span class='legend-swatch lowland'>"
+             "</span><span><b>Lowland</b> — cheap, a few hundred to "
+             "~1,000 units</span></div>"
+             "<div class='legend-item'><span class='legend-swatch highland'>"
+             "</span><span><b>Highland</b> — dear, ~13,000 units to "
+             "build fresh</span></div>"
+             "</div>")
+
+    # ---- menu index, grouped ----
+    H.append("<div class='index'><p class='index-title'>Menu index</p>")
     for group_label, _tint, items in MENU_GROUPS:
-        H.append(f"<div class='menu-group'>"
-                 f"<p class='menu-group-label'>{group_label}</p>"
-                 f"<div class='menu-grid'>")
+        H.append(f"<div class='region'><p class='region-label'>"
+                 f"{group_label}</p><div class='region-grid'>")
         for key, label, cost, _ in items:
-            cls = cost or "ghost"
-            H.append(f"<div class='menu-row'>"
-                     f"<span class='key {cls}'>{key}</span>"
+            cls = tint_map.get(cost, "ghost")
+            H.append(f"<div class='region-row'>"
+                     f"<span class='waypoint {cls}'>{key}</span>"
                      f"<span class='label'>{label}</span></div>")
         H.append("</div></div>")
-    H.append("</section>")
-
-    H.append("<p class='legend'>"
-             "<span><b style='background:var(--apricot)'></b>"
-             "~13,000 units (search)</span>"
-             "<span><b style='background:var(--butter)'></b>"
-             "~1,000 units (metadata)</span>"
-             "<span><b style='background:var(--mint)'></b>"
-             "Free — reads what you already have</span></p>")
-
-    # ---- modules ----
-    H.append("<h2 class='section-head'>What each module does</h2>")
-    H.append("<div class='modules'>")
-    mods = module_inventory()
-    for m in mods:
-        desc = MODULE_DESCRIPTIONS.get(m)
-        if not desc:
-            continue
-        H.append(f"<div class='mod'>"
-                 f"<p class='mod-name'>{m}.py</p>"
-                 f"<p class='mod-what'>{desc['what']}</p>"
-                 f"<p class='mod-eg'>{desc['example']}</p>"
-                 f"</div>")
     H.append("</div>")
 
-    # ---- workflows ----
-    H.append("<h2 class='section-head'>End-to-end workflows</h2>")
-    H.append("<div class='jobs'>")
+    # ---- routes (workflows) ----
+    H.append("<h2 class='section-head'>Routes<span class='count'>"
+             f"{len(WORKFLOWS)}</span></h2>")
+    H.append("<p class='section-sub'>Each one chains a few menu options "
+             "into a finished answer. The dashed line is the trail; "
+             "follow it left to right.</p>")
+    H.append("<div class='routes'>")
     for w in WORKFLOWS:
         wide = " wide" if w.get("wide") else ""
-        tint = tint_map.get(w["tint"], "var(--sky)")
-        H.append(f"<article class='job{wide}' style='--tint:{tint}'>")
-        H.append(f"<h2>{w['name']}</h2>"
-                 f"<p class='aim'>{w['aim']}</p>")
-        H.append("<div class='chain'>")
-        for part in w["chain"]:
-            if part[0] == "arrow":
-                H.append("<span class='arrow'>→</span>")
-            elif part[0] == "key":
+        tint_key = tint_map.get(w["tint"], "water")
+        H.append(f"<article class='route{wide}' "
+                 f"style='--tint:var(--{tint_key})'>")
+        H.append(f"<h3>{w['name']}</h3><p class='aim'>{w['aim']}</p>")
+        H.append("<div class='trail'>")
+        nodes = [p for p in w["chain"] if p[0] != "arrow"]
+        for i, part in enumerate(nodes):
+            if part[0] == "key":
                 cost = next((m[2] for m in MENU if m[0] == part[1]), "free")
-                H.append(f"<span class='step'>"
-                         f"<span class='key {cost}'>{part[1]}</span>"
+                cls = tint_map.get(cost, "water")
+                H.append(f"<span class='node node-key'>"
+                         f"<span class='waypoint {cls}' style='width:20px;"
+                         f"height:20px;font-size:10px'>{part[1]}</span>"
                          f"{part[2]}</span>")
             elif part[0] == "file":
-                H.append(f"<span class='file'>{part[1]}</span>")
+                H.append(f"<span class='node node-file'>{part[1]}</span>")
             else:
-                H.append(f"<span class='step'>{part[1]}</span>")
+                H.append(f"<span class='node node-step'>{part[1]}</span>")
+            if i < len(nodes) - 1:
+                H.append("<span class='dash'></span>")
         H.append("</div>")
         H.append(f"<p class='note'>{_md_bold_to_html(w['note'])}</p>")
-        H.append(f"<p class='cost'>{w['cost']}</p></article>")
+        H.append(f"<p class='cost'><span>{w['cost']}</span>"
+                 f"<span class='badge {tint_key}'>{tint_key}</span></p>")
+        H.append("</article>")
     H.append("</div>")
 
-    # ---- limits ----
-    H.append("<section class='limits'><h2>What it can't do</h2>"
+    # ---- off the map ----
+    H.append("<section class='limits'><h2>Off the map</h2>"
              "<p class='lead'>Worth knowing before you go looking "
              "for these.</p><dl>")
     for title, body in LIMITS:
@@ -912,7 +972,7 @@ def render_workflows_html():
 
     n_mods = len(module_inventory())
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    H.append(f"<footer><span>{n_mods} modules</span>"
+    H.append(f"<footer><span>{n_mods} modules behind {len(MENU)} options</span>"
              "<span>Deterministic — same data in, same answer out</span>"
              "<span>Math discovers, AI explains</span>"
              f"<span>Generated {ts}</span></footer>")

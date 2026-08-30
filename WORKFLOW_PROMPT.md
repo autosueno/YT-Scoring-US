@@ -36,7 +36,9 @@ Three pillars: **Demand** (inferred from engagement velocity and consumption), *
 11) Compare all niches side by side
 12) Rebuild from cleaned data
 13) Slice library to a shorter window
-14) Quit
+14) Cross-niche cluster digest
+15) Full workflow: build → discover → digest
+16) Quit
 ```
 
 ## Workflows
@@ -59,11 +61,17 @@ Read the **demand-minus-supply imbalance**, not the headline score. Demand well 
 
 Option 11 shows the table. At the end it offers a scored verdict — say yes. It measures **whether a small channel ever wins here**, whether the catalogue compounds, how concentrated the outcomes are, and what a hit is worth. No quota — reads videos.csv from disk.  _Free · reads videos.csv from disk_
 
-**Cross-niche topic research** — You want title ideas that borrow proven vocabulary from adjacent niches, not just your main one.
+**Trending + evergreen titles, one button** — You want the full cross-niche title pipeline — build, slice, discover, and rank — without opening five menu options in sequence.
+
+    [15] full workflow → name anchor + crossover niches → `trending_digest_prompt.md` → `evergreen_digest_prompt.md`
+
+**The fast path** for cross-niche research. Builds what's missing, slices 30d/90d for free, runs discovery on every window, and pools the results into two paste-ready prompts — one for what's moving now, one for themes that keep recurring across the year. Asks only for niche names; every window and ranking decision is automatic.  _13,000 units per niche not yet built · free to re-run after_
+
+**Cross-niche topic research** — You want title ideas that borrow proven vocabulary from adjacent niches, not just your main one, with hands-on control over exactly which niches and windows go in.
 
     [6] discover main niche → `breakout_discovery.md` → repeat for 1-2 crossover niches → paste all 3 + your prompt into Claude
 
-The discovery MD is lean on purpose — **6-8KB per file** so pasting three together doesn't blow the context window. Your standalone prompt does the ranking and title generation; the files just carry the cluster data.  _Free · all three reads are from disk_
+The manual route — **option 15 automates this end to end** if you just want the output. Come here instead when you want to hand-pick which niches and windows go into the pool, or write your own prompt instead of the generated one.  _Free · all three reads are from disk_
 
 **Clone a channel you admire** — One creator is doing exactly what you want to do. What exactly are they doing?
 

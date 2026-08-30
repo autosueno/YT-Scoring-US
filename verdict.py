@@ -954,67 +954,87 @@ def verdict_text(res):
 # ============================================================
 
 _CSS = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;
+700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
 :root{
-  --paper:#F4F3EF; --ink:#242A33; --ink-soft:#5A6470; --rule:#DCD9D1;
-  --dead:#CFC9D9;      /* pale lilac — the floor */
-  --mid:#BCD4C6;       /* pale sage — the contested middle */
-  --top:#F0C39C;       /* pale apricot — the winners */
-  --flag:#D99AA0;      /* dusty rose — warnings */
-  --card:#FBFAF7;
+  --bg-1:#0A1120; --bg-2:#101B30; --glow:rgba(76,141,255,.16);
+  --ink:#EDF1F7; --ink-soft:#9AA7BC; --rule:rgba(255,255,255,.09);
+  --rule-soft:rgba(255,255,255,.055);
+  --card:rgba(255,255,255,.045); --card-hi:rgba(255,255,255,.07);
+  --dead:#6B7A93;   /* muted slate — the floor: invisible, not alarming */
+  --mid:#4C8DFF;    /* accent blue — the contested middle */
+  --top:#EFA53E;    /* amber — the winners' share */
+  --flag:#F0576B;   /* coral — warnings */
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'IBM Plex Mono',monospace;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);
-  font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
-  font-size:15px;line-height:1.55;}
-.wrap{max-width:1080px;margin:0 auto;padding:48px 28px 96px}
-.eyebrow{font-family:Bahnschrift,"DIN Alternate","Segoe UI",sans-serif;
-  font-weight:600;letter-spacing:.22em;text-transform:uppercase;
-  font-size:11px;color:var(--ink-soft);margin:0 0 10px}
-h1{font-family:Bahnschrift,"DIN Alternate","Segoe UI",sans-serif;
-  font-weight:600;font-size:40px;line-height:1.1;margin:0 0 6px;
-  letter-spacing:-.01em}
-h2{font-family:Bahnschrift,"DIN Alternate","Segoe UI",sans-serif;
-  font-weight:600;font-size:21px;margin:52px 0 4px;letter-spacing:.01em}
-.sub{color:var(--ink-soft);margin:0 0 4px}
-.verdict{background:var(--card);border:1px solid var(--rule);
-  border-left:5px solid var(--top);border-radius:3px;
-  padding:22px 26px;margin:26px 0 8px;font-size:17px;line-height:1.5}
+body{margin:0;color:var(--ink);font-family:var(--font);font-size:15px;
+  line-height:1.6;
+  background:
+    radial-gradient(900px 500px at 88% 6%,var(--glow),transparent 60%),
+    radial-gradient(700px 420px at 6% 96%,rgba(239,165,62,.07),transparent 60%),
+    linear-gradient(160deg,var(--bg-1),var(--bg-2));
+  background-attachment:fixed;min-height:100vh}
+.wrap{max-width:1080px;margin:0 auto;padding:clamp(24px,5vw,56px) clamp(16px,4vw,32px) 96px}
+.eyebrow{font-family:var(--mono);font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;font-size:11px;color:var(--ink-soft);
+  margin:0 0 12px;display:flex;align-items:center;gap:10px}
+.eyebrow::before{content:"";width:22px;height:1px;background:#9AA7BC}
+h1{font-weight:800;font-size:clamp(26px,4vw,38px);line-height:1.12;
+  margin:0 0 8px;letter-spacing:-.02em}
+h2{font-weight:700;font-size:18px;margin:48px 0 6px;letter-spacing:-.01em;
+  display:flex;align-items:center;gap:9px}
+h2::before{content:"";width:3px;height:15px;border-radius:2px;
+  background:#4C8DFF}
+.sub{color:var(--ink-soft);margin:0 0 4px;font-size:13.5px}
+.verdict{background:var(--card-hi);border:1px solid var(--rule);
+  border-radius:18px;position:relative;overflow:hidden;
+  padding:22px 26px;margin:24px 0 10px;font-size:16.5px;line-height:1.55}
+.verdict::before{content:"";position:absolute;inset:0 auto 0 0;width:4px;
+  background:#EFA53E}
 .note{color:var(--ink-soft);font-size:13px;margin:10px 0 0}
-table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
-th{font-family:Bahnschrift,"Segoe UI",sans-serif;font-weight:600;
-  text-align:left;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--ink-soft);border-bottom:1px solid var(--rule);padding:8px 10px}
-td{padding:9px 10px;border-bottom:1px solid var(--rule)}
-td.num,th.num{text-align:right;
-  font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:13.5px}
+th{font-weight:700;text-align:left;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--ink-soft);border-bottom:1px solid var(--rule);
+  padding:9px 12px}
+td{padding:11px 12px;border-bottom:1px solid var(--rule-soft)}
+td.num,th.num{text-align:right;font-family:var(--mono);
   font-variant-numeric:tabular-nums}
 tr:last-child td{border-bottom:none}
-.bar{height:7px;border-radius:4px;background:#E6E3DC;overflow:hidden;
-  min-width:70px}
-.bar>span{display:block;height:100%;background:var(--mid)}
-.lead>span{background:var(--top)}
-.flag{color:#8C4B54;background:#F7E7E9;border-left:4px solid var(--flag);
-  padding:12px 16px;border-radius:3px;margin:14px 0;font-size:14px}
+.bar{height:7px;border-radius:5px;background:rgba(255,255,255,.08);
+  overflow:hidden;min-width:70px}
+.bar>span{display:block;height:100%;border-radius:5px;background:#4C8DFF}
+.lead>span{background:#EFA53E}
+.flag{color:var(--ink);background:rgba(240,87,107,.12);
+  border-left:3px solid #F0576B;padding:14px 18px;border-radius:12px;
+  margin:16px 0;font-size:13.5px}
 .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;
-  color:var(--ink-soft);margin:6px 0 18px}
-.legend i{display:inline-block;width:11px;height:11px;border-radius:2px;
+  color:var(--ink-soft);margin:8px 0 20px}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:4px;
   margin-right:6px;vertical-align:-1px}
-.cards{display:flex;gap:18px;flex-wrap:wrap;margin:12px 0}
+.cards{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0}
 .card{flex:1 1 300px;background:var(--card);border:1px solid var(--rule);
-  border-radius:3px;padding:18px 20px}
-.card h3{font-family:Bahnschrift,"Segoe UI",sans-serif;font-size:16px;
-  margin:0 0 2px}
-.card .k{color:var(--ink-soft);font-size:12px;margin:0 0 12px}
-.kv{display:flex;justify-content:space-between;gap:12px;padding:4px 0;
-  border-bottom:1px dotted var(--rule);font-size:13px}
+  border-radius:16px;padding:18px 20px}
+.card h3{font-size:15.5px;font-weight:700;margin:0 0 2px;letter-spacing:-.005em}
+.card .k{color:var(--ink-soft);font-size:12px;margin:0 0 14px}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;
+  border-bottom:1px solid var(--rule-soft);font-size:12.5px;color:var(--ink-soft)}
 .kv:last-child{border-bottom:none}
-.kv b{font-family:"Cascadia Mono",Consolas,monospace;font-weight:600;
-  font-variant-numeric:tabular-nums}
-figure{margin:18px 0}
-figcaption{color:var(--ink-soft);font-size:12.5px;margin-top:10px}
-@media (max-width:640px){.wrap{padding:30px 16px 64px}h1{font-size:29px}
-  table{font-size:13px}td,th{padding:7px 6px}}
+.kv b{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums;
+  color:var(--ink)}
+figure{margin:20px 0;background:var(--card);border:1px solid var(--rule);
+  border-radius:18px;padding:20px}
+figcaption{color:var(--ink-soft);font-size:12.5px;margin-top:14px}
+footer.gen{margin-top:34px;font-family:var(--mono);font-size:10.5px;
+  color:var(--ink-soft);opacity:.7}
+@media (max-width:640px){.wrap{padding:24px 14px 64px}h1{font-size:24px}
+  table{font-size:12.5px}td,th{padding:8px 6px}}
 @media print{body{background:#fff}.card,.verdict{break-inside:avoid}}
+</style>
 """
 
 
@@ -1036,7 +1056,13 @@ def _strata_svg(profiles):
     height = h + top_pad + 78
     out = [f'<svg viewBox="0 0 {w} {height}" width="100%" '
            f'style="max-width:{w}px" role="img" '
-           f'aria-label="Share of videos versus share of views, by stratum">']
+           f'aria-label="Share of videos versus share of views, by stratum">',
+           # Explicit backdrop rect rather than relying on the parent
+           # <figure>'s CSS background showing through the SVG canvas —
+           # some renderers paint an inline SVG's own canvas opaque
+           # regardless of the parent's background, which would wash out
+           # the light-coloured labels drawn on top.
+           f'<rect x="0" y="0" width="{w}" height="{height}" fill="#0F1830"/>']
 
     for i, k in enumerate(keys):
         p = profiles[k]
@@ -1049,9 +1075,9 @@ def _strata_svg(profiles):
         top_v = p.get("top10_view_share") or 0
         mid_v = max(0.0, 1 - dead_v - top_v)
 
-        strata = [("top", top_n, top_v, "var(--top)"),
-                  ("mid", mid_n, mid_v, "var(--mid)"),
-                  ("dead", dead_n, dead_v, "var(--dead)")]
+        strata = [("top", top_n, top_v, "#EFA53E"),
+                  ("mid", mid_n, mid_v, "#4C8DFF"),
+                  ("dead", dead_n, dead_v, "#6B7A93")]
         y = top_pad
         for _, n_share, v_share, fill in strata:
             hh = n_share * h
@@ -1071,29 +1097,29 @@ def _strata_svg(profiles):
                            f'width="{rw:.1f}" height="{hh:.1f}" fill="{fill}"/>')
             y += hh
         out.append(f'<line x1="{spine}" y1="{top_pad}" x2="{spine}" '
-                   f'y2="{top_pad + h}" stroke="var(--ink)" '
+                   f'y2="{top_pad + h}" stroke="#EDF1F7" '
                    f'stroke-width="1" opacity=".5"/>')
         name = p["niche"][:24]
         out.append(
             f'<text x="{spine}" y="{top_pad - 12}" text-anchor="middle" '
             f'font-family="Bahnschrift,Segoe UI,sans-serif" font-size="14" '
-            f'font-weight="600" fill="var(--ink)">{name}</text>')
+            f'font-weight="600" fill="#EDF1F7">{name}</text>')
         out.append(
             f'<text x="{spine}" y="{top_pad + h + 20}" text-anchor="middle" '
-            f'font-size="11.5" fill="var(--ink-soft)">'
+            f'font-size="11.5" fill="#9AA7BC">'
             f'floor: {dead_n:.0%} of videos, {dead_v:.2%} of views</text>')
         out.append(
             f'<text x="{spine}" y="{top_pad + h + 37}" text-anchor="middle" '
-            f'font-size="11.5" fill="var(--ink-soft)">'
+            f'font-size="11.5" fill="#9AA7BC">'
             f'top 10%: {top_v:.0%} of views</text>')
         out.append(
             f'<text x="{spine - colw/4}" y="{top_pad + h + 58}" '
             f'text-anchor="middle" font-size="10" letter-spacing=".1em" '
-            f'fill="var(--ink-soft)">VIDEOS</text>')
+            f'fill="#9AA7BC">VIDEOS</text>')
         out.append(
             f'<text x="{spine + colw/4}" y="{top_pad + h + 58}" '
             f'text-anchor="middle" font-size="10" letter-spacing=".1em" '
-            f'fill="var(--ink-soft)">VIEWS</text>')
+            f'fill="#9AA7BC">VIEWS</text>')
     out.append("</svg>")
     return "".join(out)
 
@@ -1175,9 +1201,9 @@ def render_html(res):
              'the share of videos in each stratum; right, the share of '
              'views that stratum captured.</p>')
     H.append('<div class="legend">'
-             '<span><i style="background:var(--top)"></i>top 10% of videos</span>'
-             '<span><i style="background:var(--mid)"></i>the contested middle</span>'
-             '<span><i style="background:var(--dead)"></i>floor '
+             '<span><i style="background:#EFA53E"></i>top 10% of videos</span>'
+             '<span><i style="background:#4C8DFF"></i>the contested middle</span>'
+             '<span><i style="background:#6B7A93"></i>floor '
              f'(under {VIABLE_VIEWS:,} lifetime views)</span></div>')
     H.append(f'<figure>{_strata_svg(P)}<figcaption>'
              'A floor that is wide on the left and invisible on the right '
@@ -1218,7 +1244,7 @@ def render_html(res):
         r, s = R[k], S[k]
         H.append(
             f'<tr><td><b>{disp[k]}</b><br>'
-            f'<span class="k" style="font-size:11.5px;color:var(--ink-soft)">'
+            f'<span class="k" style="font-size:11.5px;color:#9AA7BC">'
             f'matched: {r.get("label") or r.get("niche_key")}</span></td>'
             f'<td class="num">${_num(r.get("rpm_low"), 0)}</td>'
             f'<td class="num">${_num(r.get("rpm_mid"), 0)}</td>'

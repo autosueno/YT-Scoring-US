@@ -53,7 +53,19 @@ py main.py
 |---|---|---|
 | **12** | Rebuild from cleaned data | free |
 | **13** | Slice library to a shorter window | free |
-| **14** | Quit | — |
+
+**SYNTHESIZE — cross-niche AI prompts**
+
+| | action | cost |
+|---|---|---|
+| **14** | Cross-niche cluster digest | free |
+| **15** | Full workflow: build → discover → digest | ~13,000 units |
+
+**EXIT**
+
+| | action | cost |
+|---|---|---|
+| **16** | Quit | — |
 
 ## Output layout
 
@@ -71,17 +83,17 @@ exports/_compare/          niche-vs-niche verdicts
 history/<niche>/<date>/    archived previous builds
 ```
 
-## Modules (29)
+## Modules (30)
 
 ```
   angles              api_keys            baseline            calendars
   calibration         channel             collector           compare
   config              coverage            crossniche          dashboard
-  discover            grader              insights            main
-  metrics             paths               quota_state         quota_tracker
-  report              seo                 shorts              signals
-  statistics          thumbnail_sheet     timing              trends
-  verdict
+  digest              discover            grader              insights
+  main                metrics             paths               quota_state
+  quota_tracker       report              seo                 shorts
+  signals             statistics          thumbnail_sheet     timing
+  trends              verdict
 ```
 
 ## Known limits

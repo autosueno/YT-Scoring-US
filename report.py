@@ -426,62 +426,115 @@ def _build_html(result: dict, df: pd.DataFrame) -> str:
         + _html_highlights(result.get("highlights", []))
         + _html_diagnostics(result.get("content_diagnostics", {}))
         + _html_video_table(df)
-        + "</body>\n</html>"
+        + f"<footer class='gen'>Generated {ctx['ts']}</footer>"
+        + "</div></body>\n</html>"
     )
 
 
 def _html_head(ctx) -> str:
     """Document head + CSS. Classes are defined here so section builders
-    can use semantic class names instead of repeating inline styles."""
+    can use semantic class names instead of repeating inline styles.
+    Shares the navy-glass token system with calendars.py/dashboard.py/
+    verdict.py so every export from this engine reads as one product."""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{ctx['kind'].title()} Market Assessment — {ctx['name']}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;
+700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
   <style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            max-width: 960px; margin: 40px auto; padding: 0 20px; color: #111; }}
-    h1 {{ font-size: 1.6rem; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px; }}
-    h2 {{ font-size: 1.2rem; margin-top: 32px; color: #374151; }}
-    table {{ border-collapse: collapse; width: 100%; font-size: .85rem; }}
-    th, td {{ border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; }}
-    th {{ background: #f3f4f6; font-weight: 600; }}
-    tr:nth-child(even) {{ background: #f9fafb; }}
-    ul {{ padding-left: 20px; }} li {{ margin: 4px 0; }}
-    .meta {{ color: #6b7280; font-size: .85rem; margin-bottom: 24px; }}
-    .muted {{ color: #6b7280; }}
-    .verdict {{ font-size: 1.05rem; font-weight: 600; }}
-    /* Executive summary is what most readers need; analyst detail follows. */
-    .exec {{ background: #f9fafb; border-left: 4px solid #d1d5db;
-             padding: 12px 18px; margin: 16px 0 28px; }}
-    .section-label {{ text-transform: uppercase; letter-spacing: .05em;
-                      font-size: .72rem; color: #9ca3af; margin-top: 34px; }}
-    .badge {{ display: inline-block; min-width: 24px; text-align: center;
-              font-weight: 700; color: #fff; border-radius: 4px; padding: 1px 6px; }}
-    .bar-bg {{ background: #e5e7eb; border-radius: 4px; height: 12px; width: 180px; }}
-    .bar-fg {{ border-radius: 4px; height: 12px; }}
-    .metric-row {{ display: flex; justify-content: space-between;
-                   font-size: .78rem; color: #6b7280; }}
-    .score-badge {{ display: inline-block; font-size: 3rem; font-weight: 700;
-                    background: #f9fafb; border-radius: 12px; padding: 8px 24px;
-                    margin: 8px 0; }}
+    :root{{
+      --bg-1:#0A1120; --bg-2:#101B30; --glow:rgba(76,141,255,.16);
+      --card:rgba(255,255,255,.045); --card-hi:rgba(255,255,255,.07);
+      --line:rgba(255,255,255,.09); --line-soft:rgba(255,255,255,.055);
+      --ink:#EDF1F7; --ink-2:#9AA7BC; --ink-3:#67748C;
+      --accent:#4C8DFF; --good:#2ECF96; --bad:#F0576B;
+      --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      --mono:'IBM Plex Mono',monospace;
+    }}
+    *{{box-sizing:border-box}}
+    body {{ margin:0; font-family:var(--font); color:var(--ink);
+            line-height:1.6; font-size:15px;
+            background:
+              radial-gradient(900px 500px at 88% 6%,var(--glow),transparent 60%),
+              radial-gradient(700px 420px at 6% 96%,rgba(46,207,150,.07),transparent 60%),
+              linear-gradient(160deg,var(--bg-1),var(--bg-2));
+            background-attachment:fixed; min-height:100vh; }}
+    .page {{ max-width:1040px; margin:0 auto; padding:clamp(20px,4vw,48px); }}
+    h1 {{ font-size:23px; font-weight:800; letter-spacing:-.02em; margin:0 0 6px; }}
+    h2 {{ font-size:16px; font-weight:700; letter-spacing:-.01em;
+          margin:36px 0 12px; display:flex; align-items:center; gap:9px; }}
+    h2::before {{ content:""; width:3px; height:15px; border-radius:2px;
+                  background:var(--accent); }}
+    table {{ border-collapse:collapse; width:100%; font-size:13px; }}
+    th, td {{ border-bottom:1px solid var(--line-soft); padding:9px 12px;
+              text-align:left; }}
+    th {{ color:var(--ink-3); font-weight:700; font-size:10.5px;
+          text-transform:uppercase; letter-spacing:.06em;
+          border-bottom:1px solid var(--line); }}
+    tr:last-child td {{ border-bottom:none; }}
+    ul {{ padding-left:0; margin:0; list-style:none; display:grid; gap:9px; }}
+    li {{ font-size:13.5px; color:var(--ink-2); padding-left:18px; position:relative; }}
+    li::before {{ content:""; position:absolute; left:0; top:8px; width:6px;
+                  height:6px; border-radius:50%; background:var(--accent); }}
+    .meta {{ color:var(--ink-2); font-size:13px; margin-bottom:20px;
+             font-family:var(--mono); }}
+    .muted {{ color:var(--ink-3); }}
+    .verdict {{ font-size:16.5px; font-weight:700; color:var(--ink); }}
+    .exec {{ background:var(--card-hi); border:1px solid var(--line);
+             border-radius:20px; position:relative; overflow:hidden;
+             padding:24px 28px; margin:18px 0 30px; }}
+    .exec::before {{ content:""; position:absolute; inset:0 auto 0 0; width:4px;
+                     background:var(--score-tint,var(--accent)); }}
+    .section-label {{ text-transform:uppercase; letter-spacing:.1em;
+                      font-size:10.5px; color:var(--ink-3); margin-top:40px;
+                      font-family:var(--mono); }}
+    .badge {{ display:inline-block; min-width:26px; text-align:center;
+              font-weight:700; font-size:12px; color:#0d1526; border-radius:6px;
+              padding:2px 8px; }}
+    .bar-bg {{ background:rgba(255,255,255,.08); border-radius:5px; height:7px;
+               width:180px; position:relative; overflow:hidden; }}
+    .bar-fg {{ border-radius:5px; height:100%; }}
+    .metric-row {{ display:flex; justify-content:space-between;
+                   font-size:11.5px; color:var(--ink-3); padding:2px 0;
+                   font-family:var(--mono); }}
+    .score-badge {{ display:inline-flex; align-items:baseline; gap:10px;
+                    font-size:2.4rem; font-weight:800; color:var(--score-tint,var(--accent));
+                    background:rgba(255,255,255,.05); border:1px solid var(--line);
+                    border-radius:16px; padding:10px 26px; margin:8px 0; }}
+    .score-badge .of100 {{ font-size:14px; color:var(--ink-3); font-weight:600; }}
+    .card {{ background:var(--card); border:1px solid var(--line);
+             border-radius:16px; padding:clamp(14px,2.2vw,20px); }}
+    .card + .card {{ margin-top:10px; }}
+    table.wrap-card {{ background:var(--card); border:1px solid var(--line);
+                       border-radius:16px; overflow:hidden; }}
+    table.wrap-card th, table.wrap-card td {{ padding:10px 14px; }}
+    .note-inline {{ font-family:var(--mono); font-size:11px; color:var(--ink-3); }}
+    footer.gen {{ margin-top:34px; font-family:var(--mono); font-size:10.5px;
+                 color:var(--ink-3); }}
   </style>
 </head>
 <body>
+  <div class="page">
 """
 
 
 def _html_summary(ctx, result) -> str:
     """Executive summary — the part most readers actually act on."""
     color = _grade_color(ctx["grade"])
-    niche_line = f"<p><strong>Niche:</strong> {ctx['niche']}</p>" if ctx["niche"] else ""
+    niche_line = (f"<p class='meta' style='margin-top:-4px'>Niche: "
+                  f"<b style='color:var(--ink)'>{ctx['niche']}</b></p>"
+                  if ctx["niche"] else "")
     return f"""  <h1>{ctx['kind'].title()} Market Assessment — {ctx['name']}</h1>
-  <p class="meta">Generated {ctx['ts']} · {ctx['n']:,} videos sampled</p>
+  <p class="meta">Generated {ctx['ts']} &middot; {ctx['n']:,} videos sampled</p>
   {niche_line}
-  <div class="exec">
-    <div class="score-badge" style="color:{color};border:2px solid {color}">
-      {ctx['grade']} &nbsp; {ctx['score']:.1f}/100
+  <div class="exec" style="--score-tint:{color}">
+    <div class="score-badge">
+      {ctx['grade']} <span class="of100">{ctx['score']:.1f}/100</span>
     </div>
     <p class="verdict">{result.get('verdict', '')}</p>
   </div>
@@ -498,7 +551,7 @@ def _html_pillars(pillars) -> str:
             rows.append(
                 f"<tr><td><strong>{pname}</strong></td>"
                 f"<td class='muted'>—</td><td class='muted'>not scored</td>"
-                f"<td class='muted' style='font-size:.8rem'>{reason}</td></tr>"
+                f"<td class='muted note-inline'>{reason}</td></tr>"
             )
             continue
         color = _grade_color(p["grade"])
@@ -522,16 +575,17 @@ def _html_pillars(pillars) -> str:
             mag = int(min(abs(signed), 100) / 100 * half)
             if signed >= 0:
                 fill = (f"<div style='position:absolute;left:{half}px;width:{mag}px;"
-                        f"height:12px;background:{color};border-radius:0 4px 4px 0'></div>")
+                        f"height:100%;background:{color};border-radius:0 5px 5px 0'></div>")
             else:
                 fill = (f"<div style='position:absolute;left:{half-mag}px;width:{mag}px;"
-                        f"height:12px;background:{color};border-radius:4px 0 0 4px'></div>")
-            bar = (f"<div style='position:relative;width:{half*2}px;height:12px;"
-                   f"background:#e5e7eb;border-radius:4px'>{fill}"
+                        f"height:100%;background:{color};border-radius:5px 0 0 5px'></div>")
+            bar = (f"<div style='position:relative;width:{half*2}px;height:7px;"
+                   f"background:rgba(255,255,255,.08);border-radius:5px;overflow:hidden'>{fill}"
                    f"<div style='position:absolute;left:{half}px;width:2px;"
-                   f"height:12px;background:#6b7280'></div></div>"
-                   f"<div class='muted' style='font-size:.7rem;margin-top:2px'>"
-                   f"&#8592; decline &nbsp;|&nbsp; 0 = breakeven &nbsp;|&nbsp; growth &#8594;</div>")
+                   f"height:100%;background:rgba(255,255,255,.35)'></div></div>"
+                   f"<div class='note-inline' style='margin-top:4px'>"
+                   f"&#8592; decline &nbsp;&middot;&nbsp; 0 = breakeven "
+                   f"&nbsp;&middot;&nbsp; growth &#8594;</div>")
             score_cell = f"{signed:+.1f}"
         else:
             metric_bits = "".join(
@@ -539,18 +593,18 @@ def _html_pillars(pillars) -> str:
                 for m, s in p.get("metrics", {}).items()
             )
             bar = (f"<div class='bar-bg'><div class='bar-fg' style='background:{color};"
-                   f"width:{int(p['score'] * 1.8)}px'></div></div>")
+                   f"width:{min(100,max(0,p['score']))}%'></div></div>")
             score_cell = f"{p['score']:.1f}"
 
         rows.append(
             f"<tr><td><strong>{pname}</strong></td>"
             f"<td><span class='badge' style='background:{color}'>{p['grade']}</span></td>"
-            f"<td>{score_cell}</td>"
+            f"<td class='note-inline'>{score_cell}</td>"
             f"<td>{bar}"
-            f"<div style='margin-top:4px'>{metric_bits}</div></td></tr>"
+            f"<div style='margin-top:6px'>{metric_bits}</div></td></tr>"
         )
     return ("  <div class='section-label'>Analyst detail</div>\n"
-            "  <h2>Market Pillars</h2>\n  <table>\n"
+            "  <h2>Market Pillars</h2>\n  <table class='wrap-card'>\n"
             "    <thead><tr><th>Pillar</th><th>Grade</th><th>Score</th>"
             "<th>Breakdown</th></tr></thead>\n    <tbody>"
             + "".join(rows) + "</tbody>\n  </table>\n")
@@ -565,11 +619,13 @@ def _html_opportunity(result) -> str:
                if (opp.get("momentum_abstained") or mom is None)
                else f"{mom:+.0f} signed")
     return f"""  <h2>Opportunity (derived)</h2>
-  <p class="meta">opportunity = 50 + (demand − supply)/2, nudged by momentum</p>
-  <p><strong>Demand {opp.get('demand_score', 0):.0f}</strong> −
+  <div class="card">
+  <p class="meta" style="margin-bottom:8px">opportunity = 50 + (demand − supply)/2, nudged by momentum</p>
+  <p style="margin:0"><strong>Demand {opp.get('demand_score', 0):.0f}</strong> −
      <strong>Supply {opp.get('supply_score', 0):.0f}</strong>
      = imbalance {opp.get('imbalance', 0):+.0f}; momentum {mom_txt}
-     → <strong>{opp.get('score', 0):.1f}/100</strong></p>
+     → <strong style="color:var(--accent)">{opp.get('score', 0):.1f}/100</strong></p>
+  </div>
 """
 
 
@@ -577,25 +633,28 @@ def _html_indicators(ind) -> str:
     if not ind:
         return ""
     rows = "".join(
-        f"<tr><td>{k}</td><td>{format_indicator(k, v)}</td></tr>" for k, v in ind.items()
+        f"<tr><td>{k}</td><td class='note-inline'>{format_indicator(k, v)}</td></tr>"
+        for k, v in ind.items()
     )
-    return f"  <h2>Opportunity Indicators</h2>\n  <table><tbody>{rows}</tbody></table>\n"
+    return (f"  <h2>Opportunity Indicators</h2>\n"
+            f"  <table class='wrap-card'><tbody>{rows}</tbody></table>\n")
 
 
 def _html_highlights(highlights) -> str:
     if not highlights:
         return ""
     items = "".join(f"<li>{h}</li>" for h in highlights)
-    return f"  <h2>Highlights</h2>\n  <ul>{items}</ul>\n"
+    return f"  <h2>Highlights</h2>\n  <div class='card'><ul>{items}</ul></div>\n"
 
 
 def _html_diagnostics(diag) -> str:
     if not diag:
         return ""
-    rows = "".join(f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in diag.items())
-    return ('  <h2>Content Diagnostics <span class="muted" '
-            'style="font-weight:400;font-size:.8rem">(not scored)</span></h2>\n'
-            f"  <table><tbody>{rows}</tbody></table>\n")
+    rows = "".join(f"<tr><td>{k}</td><td class='note-inline'>{v}</td></tr>"
+                   for k, v in diag.items())
+    return ('  <h2>Content Diagnostics <span class="muted note-inline" '
+            'style="text-transform:none;letter-spacing:0">(not scored)</span></h2>\n'
+            f"  <table class='wrap-card'><tbody>{rows}</tbody></table>\n")
 
 
 def _html_video_table(df) -> str:
@@ -631,15 +690,16 @@ def _html_video_table(df) -> str:
                     v = f"{v:,.3f}" if abs(v) < 10 else f"{v:,.1f}"
                 elif isinstance(v, bool):
                     v = "✓" if v else "—"
-                cells += f"<td>{v}</td>"
+                cells += f"<td class='note-inline'>{v}</td>"
             body += f"<tr>{cells}</tr>"
-        note_html = f'<p class="meta">{note}</p>' if note else ""
+        note_html = f'<p class="meta" style="margin-bottom:12px">{note}</p>' if note else ""
         # HTML-escape the heading — tier names in config use raw <, > (e.g.
         # "<2k subs") which would otherwise be parsed as tags and swallow
         # the rest of the section.
         return (f"  <h2>{html.escape(heading)}</h2>\n{note_html}"
-                f'  <div style="overflow-x:auto"><table><thead><tr>{header}</tr></thead>'
-                f"<tbody>{body}</tbody></table></div>\n")
+                f'  <div style="overflow-x:auto;border-radius:16px;border:1px solid '
+                f'var(--line);background:var(--card)"><table><thead><tr>{header}</tr>'
+                f"</thead><tbody>{body}</tbody></table></div>\n")
 
     out = ["  <div class='section-label'>Raw evidence</div>\n"]
 
@@ -723,9 +783,9 @@ def _header(title: str):
 
 # Single source of truth for grade -> colour (was duplicated between the
 # badge and the pillar rows).
-GRADE_COLORS = {"A": "#16a34a", "B": "#2563eb", "C": "#d97706",
-                "D": "#ea580c", "F": "#dc2626"}
-_NEUTRAL = "#6b7280"
+GRADE_COLORS = {"A": "#2ECF96", "B": "#7FD9A8", "C": "#9AA7BC",
+                "D": "#E39A5C", "F": "#F0576B"}
+_NEUTRAL = "#67748C"
 
 
 def _grade_color(grade: str) -> str:

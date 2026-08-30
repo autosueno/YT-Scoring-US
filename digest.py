@@ -180,23 +180,37 @@ def export_digest(digest, exports_root=None):
     an MD (the ranked table plus the paste-ready AI prompt in one
     file — open it, select all, paste into Claude/ChatGPT).
 
-    Filenames carry every niche involved (capped, "+N more" beyond
-    three) so two digests over different niche sets never collide in
-    the same folder — same reasoning as verdict.export_verdict.
+    Filenames carry every niche AND every window involved (each capped,
+    "+N more" beyond three) so two digests never silently collide in
+    the same folder — not just two different niche sets (same
+    reasoning as verdict.export_verdict), but also two digests over the
+    SAME niches at different windows. Niche name alone isn't enough:
+    a trending digest (30d/90d) and an evergreen digest (durable
+    365d-derived clusters) over the identical two niches produced the
+    identical stem before this, and the second export silently
+    overwrote the first — caught by running the full workflow
+    end-to-end before shipping it.
     """
     root = exports_root or EXPORTS_DIR
     out_dir = os.path.join(root, "_digest")
     os.makedirs(out_dir, exist_ok=True)
 
-    bases = []
+    bases, windows = [], []
     for k in digest["keys"]:
-        b, _ = split_window(k)
+        b, w = split_window(k)
         sb = safe_name(b)
         if sb not in bases:
             bases.append(sb)
-    stem = "_".join(bases[:3])
+        sw = safe_name(w) if w else "nowindow"
+        if sw not in windows:
+            windows.append(sw)
+    niche_stem = "_".join(bases[:3])
     if len(bases) > 3:
-        stem += f"_and_{len(bases) - 3}_more"
+        niche_stem += f"_and_{len(bases) - 3}_more"
+    window_stem = "_".join(sorted(windows)[:3])
+    if len(windows) > 3:
+        window_stem += f"_and_{len(windows) - 3}_more"
+    stem = f"{niche_stem}_{window_stem}"
 
     csv_path = os.path.join(out_dir, f"{stem}_digest.csv")
     md_path = os.path.join(out_dir, f"{stem}_digest_prompt.md")
