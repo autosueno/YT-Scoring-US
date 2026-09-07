@@ -897,276 +897,185 @@ def _dispatch_digest():
         print(f"  (export failed: {type(e).__name__}: {e})")
 
 
-def _ensure_niche_full(keys, prompt_label, optional=False):
+def _dispatch_get_topic():
     """
-    One guided step of the full workflow (option 15): get a niche name,
-    check whether a 365d build already exists, and explicitly ask
-    reuse-or-rebuild — rather than deciding silently the way
-    ensure_niche() does on its own, because this flow chains several
-    niches and possibly a rebuild in one run, and a rebuild decision
-    made silently partway through a long automated run is exactly the
-    kind of surprise this is meant to avoid.
+    Option 15 — Get a topic now.
 
-    Returns the niche's base name (no window) once its 365d build is
-    ready on disk, or None if skipped (only reachable when
-    optional=True and the user presses Enter on the name prompt).
+    Designed as the simplest path to a paste-ready AI prompt with ranked
+    clusters. Two modes:
+
+        Trending:  anchor = main@30d
+                   others = main@90d + crossover1@30d + crossover2@30d
+
+        Evergreen: anchor = main@180d
+                   others = main@365d + crossover1@180d + crossover2@180d
+
+    Main niche gets BOTH windows (the short one as anchor, the longer
+    one for quarter/year context). Crossovers get ONLY the short window
+    — they're there to inject adjacent vocabulary, not to get their own
+    trend analysis. This keeps the pool focused (4 keys for 3 niches,
+    not 6) and avoids diluting the anchor's share of the ranking.
+
+    Steps:
+      1. User picks trending or evergreen.
+      2. Names 2-3 niches, first one is the main/anchor.
+      3. For each niche, build 365d if it doesn't exist (the only step
+         that costs API quota). Uses whatever exists without asking.
+      4. Slice to the needed windows (free).
+      5. Run discovery on each slice that lacks a breakout.json (free).
+      6. Feed into build_digest and export the prompt.
+
+    The user never chooses windows, discovery settings, filter
+    parameters, or ranking formulas. The machine handles all of it.
     """
     import paths as _p
 
-    while True:
-        name = input(f"\n  {prompt_label}").strip()
-        if not name:
-            if optional:
-                return None
-            print("  A niche name is required.")
-            continue
-        break
-
-    key365 = _p.with_window(name, 365)
-    exists = collector.database_exists(key365)
-    query = None
-    force = False
-
-    if exists:
-        age = _niche_age_days(key365)
-        if age is not None and age > NICHE_MAX_AGE_DAYS:
-            print(f"  Existing build for {name!r} is {age:.1f} days old "
-                  f"(stale, max {NICHE_MAX_AGE_DAYS}d before this flow "
-                  f"treats it as due for a refresh).")
-            force = input("  Rebuild it now? [Y/n]: ").strip().lower() != "n"
-        else:
-            age_txt = f"{age:.1f} days old" if age is not None else "just built"
-            print(f"  Existing build for {name!r} found ({age_txt}, fresh).")
-            use_existing = input("  Use it as-is? [Y/n]: ").strip().lower() != "n"
-            force = not use_existing
-        if force:
-            query = input(f"  Seed queries for {name!r} (Enter to reuse "
-                         f"remembered/name): ").strip() or None
+    print("\n" + "=" * 60)
+    print("  Get a topic now")
+    print("=" * 60)
+    print()
+    print("  1) Trending — what's moving right now (30d + 90d)")
+    print("  2) Evergreen — what keeps working (180d + 365d)")
+    mode_pick = input("\n  Choose [1/2]: ").strip()
+    if mode_pick == "2":
+        mode = "evergreen"
+        short_days, long_days = 180, 365
+        label = "Evergreen"
     else:
-        print(f"  No build found for {name!r} — building fresh at 365d.")
-        query = input(f"  Seed queries (Enter to search on {name!r} "
-                     f"alone): ").strip() or None
-        force = True
+        mode = "trending"
+        short_days, long_days = 30, 90
+        label = "Trending"
 
-    df, _tracker = ensure_niche(keys, key365, query=query, force=force,
-                                lookback_days=365)
-    if df is None:
-        print(f"  {name!r} not ready — skipping it for this run.")
-        return None
-    return name
-
-
-def _write_evergreen_export(key365):
-    """
-    Build the evergreen half of a niche's digest input: the clusters
-    from its 365d build that are DURABLE — recurring in 2+ of the
-    three eras discover.split_eras already computes, rather than being
-    a spike in the newest one. See discover.export_eras's docstring for
-    why era-recurrence, not raw view count, is the right durability
-    signal: a topic can accumulate a huge cumulative total purely by
-    riding one hot month, which era-recurrence would not credit.
-
-    Written to disk using digest.py's own JSON schema (topic /
-    avg_breakout / videos / unique_channels / small_creator_share /
-    top_titles) under a synthetic 'evergreen' window
-    (e.g. "finance@evergreen") purely so it can be read back through
-    digest.build_digest exactly like a real niche@window build — same
-    percentile filter, same attention-score ranking, zero new logic
-    needed downstream for the evergreen pool.
-
-    Returns the synthetic key written, or None if there wasn't enough
-    span (too few videos per era) or no theme recurred.
-    """
-    import paths as _p
-
-    base, _ = _p.split_window(key365)
-    if not collector.database_exists(key365):
-        return None
-    df = collector.load_database(key365)
-    baseline = load_baseline(key365)
-
-    eras = discover.split_eras(df)
-    live_eras = [e for e in eras.values() if not e.get("skipped")]
-    if len(live_eras) < 2:
-        print(f"    {base}: not enough span for 2+ eras — evergreen skipped.")
-        return None
-
-    theme_eras = {}
-    for ekey, e in eras.items():
-        for c in e.get("clusters", []):
-            theme_eras.setdefault(c["topic"], set()).add(ekey)
-    durable_topics = {t for t, ks in theme_eras.items() if len(ks) >= 2}
-    if not durable_topics:
-        print(f"    {base}: no theme recurred across 2+ eras — "
-              f"evergreen skipped.")
-        return None
-
-    # Full-population stats (avg_breakout, small_creator_share, etc.) for
-    # whatever topics proved durable above — NOT the per-era scores,
-    # which rank each era only against its own contemporaries and would
-    # not be comparable across niches the way the full-year stats are.
-    scored = discover.score_breakouts(df, baseline)
-    full_clusters = discover.build_clusters(scored, max_clusters=None)
-    durable_clusters = [c for c in full_clusters if c["topic"] in durable_topics]
-    if not durable_clusters:
-        return None
-
-    evergreen_key = f"{base}@evergreen"
-    json_path = _p.export_file(config.EXPORTS_DIR, evergreen_key, "breakouts",
-                               "breakout.json")
-    os.makedirs(os.path.dirname(json_path), exist_ok=True)
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump({"niche": evergreen_key, "video_count": len(df),
-                   "clusters": durable_clusters}, f)
-    print(f"    {base}: {len(durable_clusters)} durable theme(s) of "
-         f"{len(full_clusters)} total clusters, recurring across 2+ of "
-         f"{len(live_eras)} eras")
-    return evergreen_key
-
-
-def _dispatch_full_workflow():
-    """
-    Option 15 — the full trending + evergreen workflow, guided, in one
-    run. Chains everything the manual version of this workflow used to
-    require opening several menu options for:
-
-        build (365d) -> optional crossover niches (365d) -> slice each
-        to 30d/90d for free -> discover (option 6) on every window ->
-        extract durable/evergreen clusters from each 365d build ->
-        cross-niche digest, TWICE: once over the 30d/90d pool
-        ("trending" — what's moving right now/this quarter) and once
-        over the durable-cluster pool ("evergreen" — themes that keep
-        winning across separate stretches of the year, not a news
-        cycle) -> two paste-ready AI prompts, one per flavor.
-
-    Deliberately asks as little as possible, per the earlier agreed
-    design: a niche name (+ seed queries only if a build is actually
-    needed), and an explicit reuse-or-rebuild call only when a build
-    already exists. Windows, which niche is the anchor (always the
-    first one named), whether discovery/digest run, and the ranking
-    formula are never asked — the machine decides all of it.
-    """
-    import paths as _p
-
+    # --- collect niche names ---
     keys = _load_keys_or_exit()
     keys.reserve_for_topics(True)
 
-    print("\n" + "=" * 60)
-    print("  Full workflow — build, discover, and digest")
-    print("=" * 60)
-    print("  One flow: build your niche(s), slice free trending windows, "
-          "run discovery,\n  extract evergreen themes, and get two "
-          "paste-ready AI title prompts.")
-
-    built = []
-
-    anchor_base = _ensure_niche_full(keys, "Main (anchor) niche name: ")
-    if anchor_base is None:
-        print("\n  No anchor niche built — cancelled.")
+    niche_names = []
+    main_name = input("\n  Main niche name: ").strip()
+    if not main_name:
+        print("  (no niche given — cancelled)")
         return
-    built.append(anchor_base)
+    niche_names.append(main_name)
 
-    while True:
-        extra = _ensure_niche_full(
-            keys, f"Crossover niche #{len(built)} — name (Enter to stop): ",
-            optional=True)
-        if extra is None:
+    for i in range(1, 3):
+        extra = input(f"  Crossover niche #{i} (Enter to stop): ").strip()
+        if not extra:
             break
-        if extra in built:
+        if extra in niche_names:
             print(f"  {extra!r} is already in this run — skipped.")
             continue
-        built.append(extra)
+        niche_names.append(extra)
 
-    crossover_bases = built[1:]
-    print(f"\n  Ready: anchor = {anchor_base!r}"
-         + (f", crossover = {', '.join(crossover_bases)}"
-            if crossover_bases else " (no crossover niches)"))
+    crossovers = niche_names[1:]
+    print(f"\n  Mode: {label}")
+    print(f"  Main: {main_name}")
+    if crossovers:
+        print(f"  Crossovers: {', '.join(crossovers)}")
 
-    # --- trending windows: slice 30d/90d from the 365d build, free ---
-    print("\n  Preparing trending windows (30d, 90d) — free, sliced from "
-          "the 365d build already on disk...")
-    trending_keys = []
-    for base in built:
-        src_key = _p.with_window(base, 365)
-        for days in (30, 90):
-            dest_key = _p.with_window(base, days)
-            if not collector.database_exists(dest_key):
-                r = _slice_one_niche(base, days, src_key=src_key,
-                                     verbose=False)
-                if r["status"] != "sliced":
-                    print(f"    {dest_key} — skipped ({r['status']})")
-                    continue
-            trending_keys.append(dest_key)
-            print(f"    {dest_key} ready")
+    # --- step 1: ensure 365d builds exist ---
+    print("\n  Checking 365d builds...")
+    for name in niche_names:
+        key365 = _p.with_window(name, 365)
+        if collector.database_exists(key365):
+            age = _niche_age_days(key365)
+            age_txt = f"{age:.0f}d old" if age is not None else "age unknown"
+            print(f"    {name}: 365d build exists ({age_txt})")
+        else:
+            print(f"\n    {name}: no 365d build — building now.")
+            query = input(f"    Seed queries for {name!r} "
+                          f"(Enter to search on name alone): ").strip() or None
+            df, _tracker = ensure_niche(keys, key365, query=query,
+                                        force=True, lookback_days=365)
+            if df is None:
+                print(f"    {name!r} could not be built — cancelled.")
+                return
+            print(f"    {name}: built ({len(df):,} videos)")
 
-    # --- discovery on every window: 30d/90d (trending) + 365d (evergreen input) ---
-    all_windows = trending_keys + [_p.with_window(b, 365) for b in built]
-    print(f"\n  Running discovery (breakout scoring + clustering) on "
-          f"{len(all_windows)} window(s) — free, no API calls, but real "
-          f"compute time each...")
-    for key in all_windows:
-        print(f"\n  --- {key} ---")
+    # --- step 2: slice to needed windows ---
+    # Main niche: BOTH windows (short = anchor, long = context).
+    # Crossovers: ONLY the short window (vocabulary injection, not
+    # their own trend analysis). This keeps the pool at N+1 keys
+    # for N niches rather than 2N.
+    print(f"\n  Slicing to {label.lower()} windows...")
+    digest_keys = []
+
+    def _ensure_slice(name, days):
+        """Slice if needed, add to digest_keys. Returns True on success."""
+        dest_key = _p.with_window(name, days)
+        if collector.database_exists(dest_key):
+            print(f"    {dest_key} exists")
+            digest_keys.append(dest_key)
+            return True
+        src_key = _p.with_window(name, 365)
+        r = _slice_one_niche(name, days, src_key=src_key, verbose=False)
+        if r["status"] != "sliced":
+            print(f"    {dest_key} — skipped ({r['status']})")
+            return False
+        print(f"    {dest_key} sliced ({r['videos']:,} videos)")
+        digest_keys.append(dest_key)
+        return True
+
+    # Main niche gets both windows
+    _ensure_slice(main_name, short_days)
+    if mode == "evergreen":
+        # 365d already exists (built in step 1), just add it
+        key365 = _p.with_window(main_name, 365)
+        if key365 not in digest_keys:
+            digest_keys.append(key365)
+            print(f"    {key365} (full year)")
+    else:
+        _ensure_slice(main_name, long_days)
+
+    # Crossovers get ONLY the short window
+    for name in crossovers:
+        _ensure_slice(name, short_days)
+
+    # --- step 3: run discovery on any slice missing breakout.json ---
+    print(f"\n  Running discovery on slices that need it...")
+    for key in digest_keys:
+        clusters, _ = digest._load_niche_clusters(key)
+        if clusters is not None:
+            print(f"    {key} — breakout export exists")
+            continue
+        print(f"    {key} — running discovery...")
         try:
             discover_opportunities(key)
         except Exception as e:
-            print(f"    (discovery failed: {type(e).__name__}: {e})")
+            print(f"    (discovery failed for {key}: "
+                  f"{type(e).__name__}: {e})")
 
-    # --- evergreen: durable clusters from each niche's 365d build ---
-    print("\n  Extracting evergreen (durable) themes from each 365d "
-          "build...")
-    evergreen_keys = []
-    for base in built:
-        ek = _write_evergreen_export(_p.with_window(base, 365))
-        if ek:
-            evergreen_keys.append(ek)
+    # --- step 4: build and export the digest ---
+    anchor_key = _p.with_window(main_name, short_days)
+    others = [k for k in digest_keys if k != anchor_key]
 
-    print("\n" + "=" * 60)
-    print("  Digests")
-    print("=" * 60)
+    if not others:
+        print("\n  Only one dataset available — need at least two "
+              "for a digest.")
+        return
 
-    # --- trending digest: anchor's 30d table, pooled with everything else ---
-    anchor_30 = _p.with_window(anchor_base, 30)
-    if anchor_30 in trending_keys:
-        others = [k for k in trending_keys if k != anchor_30]
-        print(f"\n  Trending digest (anchor: {anchor_30}):")
-        result = digest.build_digest(anchor_30, others)
-        _print_digest_summary(result)
-        try:
-            paths_out = digest.export_digest(result)
-            print(f"    CSV → {paths_out['csv']}")
-            print(f"    Prompt → {paths_out['md']}")
-        except Exception as e:
-            print(f"    (export failed: {type(e).__name__}: {e})")
-    else:
-        print(f"\n  Trending digest skipped — {anchor_30} was never "
-              f"successfully built.")
+    print(f"\n  Building {label.lower()} digest...")
+    print(f"    Anchor: {anchor_key}")
+    print(f"    Pool:   {', '.join(others)}")
 
-    # --- evergreen digest: anchor's durable-theme export, pooled likewise ---
-    anchor_evergreen = f"{anchor_base}@evergreen"
-    if anchor_evergreen in evergreen_keys:
-        others = [k for k in evergreen_keys if k != anchor_evergreen]
-        print(f"\n  Evergreen digest (anchor: {anchor_evergreen}):")
-        result = digest.build_digest(anchor_evergreen, others)
-        _print_digest_summary(result)
-        try:
-            paths_out = digest.export_digest(result)
-            print(f"    CSV → {paths_out['csv']}")
-            print(f"    Prompt → {paths_out['md']}")
-        except Exception as e:
-            print(f"    (export failed: {type(e).__name__}: {e})")
-    else:
-        print(f"\n  Evergreen digest skipped — no durable themes found "
-              f"for the anchor niche.")
+    result = digest.build_digest(anchor_key, others)
+    _print_digest_summary(result)
+
+    try:
+        paths_out = digest.export_digest(result)
+        print(f"\n  Ranked pool (CSV) → {paths_out['csv']}")
+        print(f"  Paste-ready AI prompt (MD) → {paths_out['md']}")
+        print("     ↳ open the MD file, select all, paste into Claude "
+              "or ChatGPT.")
+    except Exception as e:
+        print(f"  (export failed: {type(e).__name__}: {e})")
 
     print("\n" + "=" * 60)
-    print("  Done. Open each _digest_prompt.md above, select all, paste "
-          "into Claude or ChatGPT.")
+    print("  Done.")
     print("=" * 60)
 
 
 def _print_digest_summary(result):
-    """Shared console summary for a build_digest() result — used by
-    both the trending and evergreen legs of _dispatch_full_workflow."""
+    """Shared console summary for a build_digest() result."""
     for key, s in result["filter_stats"].items():
         print(f"    {key:<28} {s['total']:>4} clusters → cutoff "
               f"{s['cutoff']:>6.1f} → {s['survivors']:>4} survive")
@@ -1174,6 +1083,10 @@ def _print_digest_summary(result):
         print(f"    ⚠️  No export found: {', '.join(result['missing'])}")
     print(f"    Pooled {result['pool_size']} survivors, top "
          f"{len(result['top'])} kept.")
+    if result.get("anchor_floor_used"):
+        print(f"    ⚠️  Anchor floor activated — anchor clusters were "
+              f"boosted to guarantee enough vocabulary for the "
+              f"combination rule.")
     for key, count in result["split_counts"].items():
         print(f"      {count:>3} from {key}")
 
@@ -1469,7 +1382,7 @@ def _menu():
     print("  SYNTHESIZE — cross-niche AI prompts")
     print("  ─────────────────────────────────────────────────────")
     print(" 14) Cross-niche cluster digest")
-    print(" 15) Full workflow: build → discover → digest (trending + evergreen)")
+    print(" 15) Get a topic now (trending or evergreen)")
     print()
     print(" 16) Quit")
     return input("\nChoose [1-16]: ").strip()
@@ -1619,7 +1532,7 @@ def _dispatch(choice):
         _dispatch_digest()
 
     elif choice == "15":
-        _dispatch_full_workflow()
+        _dispatch_get_topic()
 
     elif choice == "16":
         return "quit"

@@ -1,56 +1,56 @@
 {
   "schema": 2,
-  "pacific_date": "2026-08-26",
-  "written_utc": "2026-08-26T23:58:35+00:00",
+  "pacific_date": "2026-09-04",
+  "written_utc": "2026-09-04T11:31:16+00:00",
   "keys": {
     "dec__Q": {
       "dead": true,
-      "used": 1600,
+      "used": 2200,
       "slot": 1
     },
     "xKm2NU": {
       "dead": true,
-      "used": 900,
+      "used": 800,
       "slot": 2
     },
     "7TA9uE": {
       "dead": true,
-      "used": 1800,
+      "used": 1600,
       "slot": 3
     },
     "vji51w": {
       "dead": true,
-      "used": 2000,
+      "used": 900,
       "slot": 4
     },
     "236kl0": {
       "dead": true,
-      "used": 1100,
+      "used": 1900,
       "slot": 5
     },
     "3XsFEs": {
-      "dead": true,
-      "used": 10477,
+      "dead": false,
+      "used": 2126,
       "slot": 6
     },
     "T0Qb1w": {
-      "dead": true,
-      "used": 10373,
+      "dead": false,
+      "used": 3326,
       "slot": 7
     },
     "oJ-i60": {
-      "dead": true,
-      "used": 9772,
+      "dead": false,
+      "used": 2626,
       "slot": 8
     },
     "XWzCpQ": {
-      "dead": true,
-      "used": 10268,
+      "dead": false,
+      "used": 3526,
       "slot": 9
     },
     "wNmdHM": {
-      "dead": true,
-      "used": 7410,
+      "dead": false,
+      "used": 0,
       "slot": 10
     },
     "lpN1aY": {

@@ -40,6 +40,7 @@ export yet, it's reported as missing and skipped — run option 6 on it
 first.
 """
 
+import math
 import os
 import json
 from datetime import datetime, timezone
@@ -50,12 +51,33 @@ from config import EXPORTS_DIR
 from paths import export_file, split_window, safe_name
 
 
-# How many rows the pooled ranking keeps. 50 matches the manual
-# workflow this replaces; the AI prompt asks for 30-50 titles from it.
-DIGEST_TOP_N = 50
+# How many rows the pooled ranking keeps. Bumped from 50 to 60 because
+# the "get a topic" flow pools 6 files (3 niches × 2 windows) rather
+# than the 2-3 the manual workflow used, and a flat 50 left too little
+# room per file when competing against more sources.
+DIGEST_TOP_N = 60
 
 # Percentile used to derive the per-file "too thin to trust" cutoff.
 DIGEST_FILTER_PERCENTILE = 0.75
+
+# Minimum guaranteed anchor-window clusters in the final top-N.
+# The prompt rule "every topic must include a cluster from the anchor
+# window" is unsatisfiable when the ranking pushes the anchor below
+# this count. 15 is enough for 30-50 titles without repeating the
+# same anchor cluster in every one.
+ANCHOR_FLOOR = 15
+
+# Attention score weights. The blend is:
+#   (1-W) * cluster_score + W * accessibility
+# where accessibility = 100 * sqrt(max(small_creator_share, SHARE_FLOOR)).
+# W=0.30 gives accessibility real weight without letting it override a
+# strong cluster_score signal.
+ATTENTION_ACCESSIBILITY_WEIGHT = 0.30
+
+# Floor on small_creator_share BEFORE sqrt, so a cluster where only big
+# creators have succeeded (share = 0) doesn't score zero — that gap
+# might be the opportunity.
+ATTENTION_SHARE_FLOOR = 0.05
 
 
 def _load_niche_clusters(key):
@@ -99,20 +121,56 @@ def _percentile_filter(clusters, pct=DIGEST_FILTER_PERCENTILE):
     return cutoff, survivors
 
 
+def _attention_score(cluster):
+    """
+    Score a cluster for the digest ranking.
+
+    Previous formula: avg_breakout × small_creator_share.
+    Three failure modes that formula had:
+      1. Zero-out: share=0 → score=0, so a cluster where only big
+         creators have succeeded vanishes — that gap might be the
+         opportunity.
+      2. Breakout suppression: a weak cluster (breakout 35, share 0.70
+         → 24.5) beats an explosive one (breakout 92, share 0.12 →
+         11.0). Accessibility vetoed strong signals.
+      3. No channel diversity: two clusters with identical breakout
+         and share scored the same regardless of channel count.
+         cluster_score already blends in a channel-evidence term,
+         but the old formula went back to raw avg_breakout and
+         discarded it.
+
+    New formula:
+        accessibility = 100 * sqrt(max(share, FLOOR))
+        attention = (1-W) * cluster_score + W * accessibility
+
+    cluster_score carries the channel-evidence term through.
+    sqrt on share gives diminishing returns — going from 0 to 0.30
+    matters more than 0.50 to 0.90. The floor prevents zero-out.
+    """
+    share = cluster.get("small_creator_share") or 0.0
+    access = 100.0 * math.sqrt(max(share, ATTENTION_SHARE_FLOOR))
+    cs = cluster.get("cluster_score") or cluster.get("avg_breakout", 0.0)
+    W = ATTENTION_ACCESSIBILITY_WEIGHT
+    return round((1 - W) * cs + W * access, 2)
+
+
 def build_digest(anchor_key, other_keys, top_n=DIGEST_TOP_N,
-                 pct=DIGEST_FILTER_PERCENTILE):
+                 pct=DIGEST_FILTER_PERCENTILE,
+                 anchor_floor=ANCHOR_FLOOR):
     """
     Merge breakout clusters from an anchor niche@window plus any number
     of crossover niche@window builds into one filtered, ranked pool.
 
-    Deliberately does NOT constrain how many of the top_n slots any one
-    niche/window can win. A window with a longer collection span will
-    structurally produce more surviving clusters than a shorter one,
-    even after a fair per-file filter — that's a real property of the
-    data, not a bug in the ranking. Rather than silently correcting for
-    it (which would hide whether it's actually happening), every digest
-    reports the split explicitly via 'split_counts' so it's visible and
-    judgeable on each run.
+    ANCHOR FLOOR
+    -------------
+    The prompt rule "every generated topic must include at least one
+    cluster from the anchor window" is unsatisfiable when pure
+    attention-score ranking leaves fewer than anchor_floor anchor
+    clusters in the top-N. This reserves that many slots: the best
+    anchor_floor anchor-window survivors are guaranteed a spot, then
+    the remaining (top_n - anchor_floor) slots are filled by attention
+    score across everyone. When the anchor naturally wins more than
+    anchor_floor slots, the floor has no effect.
 
     Returns:
         {
@@ -123,6 +181,7 @@ def build_digest(anchor_key, other_keys, top_n=DIGEST_TOP_N,
           "pool_size": int,           total survivors pooled, pre-truncation
           "top": [ranked cluster dicts, tagged with niche_key/is_anchor],
           "split_counts": {key: count in top}, ordered by count desc,
+          "anchor_floor_used": bool,  True if the floor forced extra anchors in
         }
     """
     keys = [anchor_key] + [k for k in other_keys if k != anchor_key]
@@ -139,20 +198,36 @@ def build_digest(anchor_key, other_keys, top_n=DIGEST_TOP_N,
         filter_stats[key] = {"total": len(clusters), "cutoff": round(cutoff, 1),
                              "survivors": len(survivors)}
         for c in survivors:
-            share = c.get("small_creator_share") or 0.0
             tagged = dict(c)
             tagged["niche_key"] = key
             tagged["is_anchor"] = (key == anchor_key)
-            # The attention score from the manual workflow:
-            # avg_breakout x small_creator_share. Both are already
-            # 0-100 / 0-1 scale respectively, so this stays 0-100ish
-            # and comparable across files without extra normalization.
-            tagged["attention_score"] = round(
-                tagged.get("avg_breakout", 0.0) * share, 2)
+            tagged["attention_score"] = _attention_score(tagged)
             pool.append(tagged)
 
     pool.sort(key=lambda c: c["attention_score"], reverse=True)
-    top = pool[:top_n]
+
+    # --- anchor floor: guarantee anchor_floor slots for anchor clusters ---
+    anchor_pool = [c for c in pool if c["is_anchor"]]
+    other_pool = [c for c in pool if not c["is_anchor"]]
+
+    # How many anchor clusters would make it in on pure merit?
+    pure_top = pool[:top_n]
+    anchor_in_pure = sum(1 for c in pure_top if c["is_anchor"])
+    anchor_floor_used = anchor_in_pure < anchor_floor and len(anchor_pool) > 0
+
+    if anchor_floor_used:
+        # Reserve the best anchor_floor anchor clusters, fill the rest
+        # from the combined pool (which can include MORE anchor clusters
+        # beyond the floor if they rank high enough).
+        reserved = anchor_pool[:anchor_floor]
+        reserved_set = {id(c) for c in reserved}
+        remaining = [c for c in pool if id(c) not in reserved_set]
+        remaining.sort(key=lambda c: c["attention_score"], reverse=True)
+        top = reserved + remaining[:max(0, top_n - len(reserved))]
+        # Re-sort the final list by attention score for a clean ranking
+        top.sort(key=lambda c: c["attention_score"], reverse=True)
+    else:
+        top = pool[:top_n]
 
     split_counts = {}
     for c in top:
@@ -167,6 +242,7 @@ def build_digest(anchor_key, other_keys, top_n=DIGEST_TOP_N,
         "pool_size": len(pool),
         "top": top,
         "split_counts": split_counts,
+        "anchor_floor_used": anchor_floor_used,
     }
 
 
@@ -328,6 +404,10 @@ def _render_prompt_md(digest) -> str:
              ". The filtering and ranking are already done — do not "
              "re-filter or re-rank the table; use it as given.")
     L.append("")
+    # Anchor window label for the combination rule
+    _, anchor_win = split_window(digest["anchor"])
+    anchor_label = f"{anchor_base}@{anchor_win}" if anchor_win else anchor_base
+
     L.append("Using the table above, do the following:")
     L.append("")
     L.append("1. Build 30-50 video titles using cluster words drawn from "
@@ -336,11 +416,17 @@ def _render_prompt_md(digest) -> str:
     L.append(f"2. Every title must be anchored to **{anchor_base}** — it "
              "has to make sense as content for that channel, even when "
              "the vocabulary comes from a crossover niche's cluster.")
-    L.append("3. Every cluster in the top 30 rows must appear in at least "
+    L.append(f"3. **COMBINATION RULE:** every title must combine words "
+             f"from AT LEAST TWO different clusters in the table, and "
+             f"at least one of those clusters must be from the anchor "
+             f"window (**{anchor_label}**, marked ⚓ in the table). "
+             f"A title built from only one cluster, or from zero anchor "
+             f"clusters, is not valid.")
+    L.append("4. Every cluster in the top 30 rows must appear in at least "
              "one title.")
-    L.append("4. The strongest clusters (top 15 rows) must appear in "
+    L.append("5. The strongest clusters (top 15 rows) must appear in "
              "multiple titles.")
-    L.append("5. For each title, note which cluster(s) and which niche "
+    L.append("6. For each title, note which cluster(s) and which niche "
              "the words were drawn from, so it's traceable back to the "
              "table.")
     L.append("")

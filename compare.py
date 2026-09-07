@@ -61,10 +61,14 @@ def list_all_niches():
         if not os.path.isdir(base_dir):
             continue
         # Window subfolders, plus the legacy flat layout.
+        # Sort NUMERICALLY (30d, 90d, 365d) — not lexicographically,
+        # which put 365d before 90d because "3" < "9".
+        win_dirs = [d for d in os.listdir(base_dir)
+                    if os.path.isdir(os.path.join(base_dir, d))
+                    and d.endswith("d") and d[:-1].isdigit()]
+        win_dirs.sort(key=lambda d: int(d[:-1]))
         candidates = [(os.path.join(base_dir, d), f"{name}{WINDOW_SEP}{d}")
-                      for d in sorted(os.listdir(base_dir))
-                      if os.path.isdir(os.path.join(base_dir, d))
-                      and d.endswith("d") and d[:-1].isdigit()]
+                      for d in win_dirs]
         if locate(base_dir, "metadata.json"):
             candidates.append((base_dir, name))
         for path, key in candidates:
